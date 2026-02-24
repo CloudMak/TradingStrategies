@@ -1,0 +1,165 @@
+﻿//@version=6
+strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, scale=scale.right, max_labels_count=500)
+
+// ── Import library
+import maksim_owner/PrevDayLevels/1 as PDL
+
+// ── Inputs
+// Enables or disables the daily trade limit, affecting whether multiple entries can occur in one day.
+tradeOncePerDay = input.bool(true, "One trade per day")
+// Requires bar close confirmation for signals, affecting when entries are considered valid.
+useCloseConfirm = input.bool(true, "Confirm on bar close")
+// Sets ATR lookback length, affecting volatility measurement used in stops and labels.
+atrLen = input.int(14, "ATR Length", minval=1)
+// Sets ATR stop multiplier, affecting stop-loss distance from entry.
+atrMult = input.float(1.2, "SL = k*ATR", minval=0.1, step=0.1)
+// Sets risk-reward ratio, affecting take-profit distance relative to stop distance.
+rr = input.float(2.0, "TP = RR*SL", minval=0.1, step=0.1)
+// Sets minimum stop floor as percent of entry, affecting the minimum allowed stop distance.
+minStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, step=0.0001)
+// Sets ATR-based breakout buffer fraction, affecting breakout trigger sensitivity.
+bufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
+// Toggles entry labels, affecting whether entry diagnostics are drawn on chart.
+showEntryLabels = input.bool(true, "Show entry labels")
+// Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
+showExitLabels = input.bool(true, "Show exit labels")
+apiKey = input.string("", "API Key")
+
+// ── Data
+atr = ta.atr(atrLen)
+[prevHighPrice, prevLowPrice, prevOpenPrice, prevClosePrice] = PDL.getPrevDayOHLC()
+buffer = bufferAtr * atr
+
+// ── Helpers
+f_price(x) => str.tostring(x, format.mintick)
+f_num(x) => str.tostring(x, "#.####")
+f_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
+    rawStop = atrFactor * atrValue
+    floorStop = stopFloorPct > 0.0 ? entry * stopFloorPct : 0.0
+    math.max(rawStop, floorStop)
+f_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
+f_longBreakout(closePrice, level, breakoutBuffer) => closePrice > (level + breakoutBuffer)
+f_shortBreakout(closePrice, level, breakoutBuffer) => closePrice < (level - breakoutBuffer)
+f_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
+f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
+
+// ── One-trade-per-day gate
+newDay = ta.change(time("D")) != 0
+var bool tradedToday = false
+if newDay
+    tradedToday := false
+canTrade = (not tradeOncePerDay) or (not tradedToday)
+
+// ── Signal Generation
+longCondRaw = f_longBreakout(close, prevHighPrice, buffer)
+shortCondRaw = f_shortBreakout(close, prevLowPrice, buffer)
+longCond = f_confirmed(longCondRaw, useCloseConfirm)
+shortCond = f_confirmed(shortCondRaw, useCloseConfirm)
+
+// ── Risk Management
+longStopDist = f_stopDist(close, atr, atrMult, minStopPct)
+shortStopDist = f_stopDist(close, atr, atrMult, minStopPct)
+longSLPrice = close - longStopDist
+longTPPrice = close + f_tpDistance(longStopDist, rr)
+shortSLPrice = close + shortStopDist
+shortTPPrice = close - f_tpDistance(shortStopDist, rr)
+
+// ── Persistent trade params (for exit labels)
+var float lastEntryPrice = na
+var float lastSLPrice = na
+var float lastTPPrice = na
+var float lastATR = na
+var float lastSD = na
+var string lastSide = ""
+var int lastEntryBar = na
+
+// ── Entries + exits
+if canTrade and strategy.position_size == 0
+    if longCond
+        entryPrice = close
+        sd = longStopDist
+        slPrice = longSLPrice
+        tpPrice = longTPPrice
+        lastEntryPrice := entryPrice
+        lastSLPrice := slPrice
+        lastTPPrice := tpPrice
+        lastATR := atr
+        lastSD := sd
+        lastSide := "L"
+        lastEntryBar := bar_index
+        strategy.entry("L", strategy.long)
+        if barstate.isrealtime
+            alert(f_alertMessage(apiKey, syminfo.ticker, "Buy", slPrice, tpPrice))
+        strategy.exit("Lx", "L", stop=slPrice, limit=tpPrice)
+        tradedToday := true
+        if showEntryLabels
+            txt = "ENTRY L\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(atr) + "\n" + "Buffer: " + f_price(buffer)
+            label.new(bar_index, entryPrice, txt, style=label.style_label_up, textalign=text.align_left, size=size.normal)
+    if shortCond
+        entryPrice = close
+        sd = shortStopDist
+        slPrice = shortSLPrice
+        tpPrice = shortTPPrice
+        lastEntryPrice := entryPrice
+        lastSLPrice := slPrice
+        lastTPPrice := tpPrice
+        lastATR := atr
+        lastSD := sd
+        lastSide := "S"
+        lastEntryBar := bar_index
+        strategy.entry("S", strategy.short)
+        if barstate.isrealtime
+            alert(f_alertMessage(apiKey, syminfo.ticker, "Sell", slPrice, tpPrice))
+        strategy.exit("Sx", "S", stop=slPrice, limit=tpPrice)
+        tradedToday := true
+        if showEntryLabels
+            txt = "ENTRY S\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(atr) + "\n" + "Buffer: " + f_price(buffer)
+            label.new(bar_index, entryPrice, txt, style=label.style_label_down, textalign=text.align_left, size=size.normal)
+
+// ── Exit detection + success/fail labels
+posNow = strategy.position_size
+posPrev = strategy.position_size[1]
+closedThisBar = (posPrev != 0) and (posNow == 0)
+if showExitLabels and closedThisBar
+    wasLong = posPrev > 0
+    float exitPrice = na
+    reason = ""
+    if wasLong
+        if (not na(lastSLPrice)) and (low <= lastSLPrice)
+            exitPrice := lastSLPrice
+            reason := "SL"
+        else if (not na(lastTPPrice)) and (high >= lastTPPrice)
+            exitPrice := lastTPPrice
+            reason := "TP"
+        else
+            exitPrice := close
+            reason := "Close"
+    else
+        if (not na(lastSLPrice)) and (high >= lastSLPrice)
+            exitPrice := lastSLPrice
+            reason := "SL"
+        else if (not na(lastTPPrice)) and (low <= lastTPPrice)
+            exitPrice := lastTPPrice
+            reason := "TP"
+        else
+            exitPrice := close
+            reason := "Close"
+    win = reason == "TP"
+    loss = reason == "SL"
+    qty = math.abs(posPrev)
+    float notional = na
+    notional := not na(lastEntryPrice) ? qty * lastEntryPrice : na
+    float pnl = na
+    if (not na(lastEntryPrice)) and (not na(exitPrice))
+        pnl := (wasLong ? (exitPrice - lastEntryPrice) : (lastEntryPrice - exitPrice)) * qty
+    head = win ? "WIN ✅" : loss ? "LOSS ❌" : "CLOSED"
+    txt = head + " (" + reason + ")\n" + "Side: " + (wasLong ? "L" : "S") + "\n" + "Entry: " + f_price(lastEntryPrice) + "\n" + "Exit: " + f_price(exitPrice) + "\n" + "SL: " + f_price(lastSLPrice) + "\n" + "TP: " + f_price(lastTPPrice) + "\n" + "ATR: " + f_price(lastATR) + "\n" + "StopDist: " + f_price(lastSD) + "\n" + "Qty: " + f_num(qty) + (not na(notional) ? ("\nNotional: " + f_num(notional)) : "") + (not na(pnl) ? ("\nPnL(est): " + f_num(pnl)) : "")
+    label.new(bar_index, exitPrice, txt, style=label.style_label_left, textalign=text.align_left, size=size.normal)
+
+// ── Optional: show PDH/PDL lines
+// plot(prevHigh, "PDH", linewidth=2, style=plot.style_linebr)
+// plot(prevLow, "PDL", linewidth=2, style=plot.style_linebr)
+
+// ── Optional: show PDH/PDL lines (if you want)
+// plot(prevHigh, "PDH", linewidth=2, style=plot.style_linebr)
+// plot(prevLow,  "PDL", linewidth=2, style=plot.style_linebr)

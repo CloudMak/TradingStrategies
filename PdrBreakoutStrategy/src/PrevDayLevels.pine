@@ -1,0 +1,21 @@
+﻿//@version=5
+library("PrevDayLevels", overlay=false, dynamic_requests=true)
+
+// Returns previous day OHLC computed from the exchange daily timeframe.
+// lookahead_off => no repaint from future daily bars.
+export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
+    float dHigh  = request.security(tickerId, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)
+    float dLow   = request.security(tickerId, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)
+    float dOpen  = request.security(tickerId, "D", open,  barmerge.gaps_off, barmerge.lookahead_off)
+    float dClose = request.security(tickerId, "D", close, barmerge.gaps_off, barmerge.lookahead_off)
+
+    float prevHigh  = dHigh[1]
+    float prevLow   = dLow[1]
+    float prevOpen  = dOpen[1]
+    float prevClose = dClose[1]
+
+    [prevHigh, prevLow, prevOpen, prevClose]
+
+export getPrevDayRange(string tickerId = syminfo.tickerid) =>
+    [ph, pl, _, _] = getPrevDayOHLC(tickerId)
+    math.max(ph - pl, syminfo.mintick)
