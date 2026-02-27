@@ -25,23 +25,26 @@ showEntryLabels = input.bool(true, "Show entry labels")
 showExitLabels = input.bool(true, "Show exit labels")
 apiKey = input.string("", "API Key")
 
-// ── Data
-atr = ta.atr(atrLen)
-[prevHighPrice, prevLowPrice, prevOpenPrice, prevClosePrice] = PDL.getPrevDayOHLC()
-buffer = bufferAtr * atr
-
 // ── Helpers
 f_price(x) => str.tostring(x, format.mintick)
 f_num(x) => str.tostring(x, "#.####")
-f_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
+f_risk_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
     rawStop = atrFactor * atrValue
     floorStop = stopFloorPct > 0.0 ? entry * stopFloorPct : 0.0
     math.max(rawStop, floorStop)
-f_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
-f_longBreakout(closePrice, level, breakoutBuffer) => closePrice > (level + breakoutBuffer)
-f_shortBreakout(closePrice, level, breakoutBuffer) => closePrice < (level - breakoutBuffer)
-f_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
+f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
+f_feature_atr(atrLength) => ta.atr(atrLength)
+f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
+f_model_longBreakout(closePrice, breakoutLevel, crossedUp) => closePrice > breakoutLevel and crossedUp
+f_model_shortBreakout(closePrice, breakoutLevel, crossedDown) => closePrice < breakoutLevel and crossedDown
+f_model_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
+
+// ── Feature Layer
+featClose = close
+featATR = f_feature_atr(atrLen)
+[featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
+featBreakoutBuffer = f_feature_breakoutBuffer(featATR, bufferAtr)
 
 // ── One-trade-per-day gate
 newDay = ta.change(time("D")) != 0
@@ -50,19 +53,23 @@ if newDay
     tradedToday := false
 canTrade = (not tradeOncePerDay) or (not tradedToday)
 
-// ── Signal Generation
-longCondRaw = f_longBreakout(close, prevHighPrice, buffer)
-shortCondRaw = f_shortBreakout(close, prevLowPrice, buffer)
-longCond = f_confirmed(longCondRaw, useCloseConfirm)
-shortCond = f_confirmed(shortCondRaw, useCloseConfirm)
+// ── Model Layer
+longBreakoutLevel = featPrevHighPrice + featBreakoutBuffer
+shortBreakoutLevel = featPrevLowPrice - featBreakoutBuffer
+modelLongCrossedUp = ta.crossover(featClose, longBreakoutLevel)
+modelShortCrossedDown = ta.crossunder(featClose, shortBreakoutLevel)
+modelLongCondRaw = f_model_longBreakout(featClose, longBreakoutLevel, modelLongCrossedUp)
+modelShortCondRaw = f_model_shortBreakout(featClose, shortBreakoutLevel, modelShortCrossedDown)
+modelLongCond = f_model_confirmed(modelLongCondRaw, useCloseConfirm)
+modelShortCond = f_model_confirmed(modelShortCondRaw, useCloseConfirm)
 
 // ── Risk Management
-longStopDist = f_stopDist(close, atr, atrMult, minStopPct)
-shortStopDist = f_stopDist(close, atr, atrMult, minStopPct)
-longSLPrice = close - longStopDist
-longTPPrice = close + f_tpDistance(longStopDist, rr)
-shortSLPrice = close + shortStopDist
-shortTPPrice = close - f_tpDistance(shortStopDist, rr)
+riskLongStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
+riskShortStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
+riskLongSLPrice = featClose - riskLongStopDist
+riskLongTPPrice = featClose + f_risk_tpDistance(riskLongStopDist, rr)
+riskShortSLPrice = featClose + riskShortStopDist
+riskShortTPPrice = featClose - f_risk_tpDistance(riskShortStopDist, rr)
 
 // ── Persistent trade params (for exit labels)
 var float lastEntryPrice = na
@@ -75,15 +82,15 @@ var int lastEntryBar = na
 
 // ── Entries + exits
 if canTrade and strategy.position_size == 0
-    if longCond
-        entryPrice = close
-        sd = longStopDist
-        slPrice = longSLPrice
-        tpPrice = longTPPrice
+    if modelLongCond
+        entryPrice = featClose
+        sd = riskLongStopDist
+        slPrice = riskLongSLPrice
+        tpPrice = riskLongTPPrice
         lastEntryPrice := entryPrice
         lastSLPrice := slPrice
         lastTPPrice := tpPrice
-        lastATR := atr
+        lastATR := featATR
         lastSD := sd
         lastSide := "L"
         lastEntryBar := bar_index
@@ -93,17 +100,17 @@ if canTrade and strategy.position_size == 0
         strategy.exit("Lx", "L", stop=slPrice, limit=tpPrice)
         tradedToday := true
         if showEntryLabels
-            txt = "ENTRY L\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(atr) + "\n" + "Buffer: " + f_price(buffer)
+            txt = "ENTRY L\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
             label.new(bar_index, entryPrice, txt, style=label.style_label_up, textalign=text.align_left, size=size.normal)
-    if shortCond
-        entryPrice = close
-        sd = shortStopDist
-        slPrice = shortSLPrice
-        tpPrice = shortTPPrice
+    if modelShortCond
+        entryPrice = featClose
+        sd = riskShortStopDist
+        slPrice = riskShortSLPrice
+        tpPrice = riskShortTPPrice
         lastEntryPrice := entryPrice
         lastSLPrice := slPrice
         lastTPPrice := tpPrice
-        lastATR := atr
+        lastATR := featATR
         lastSD := sd
         lastSide := "S"
         lastEntryBar := bar_index
@@ -113,7 +120,7 @@ if canTrade and strategy.position_size == 0
         strategy.exit("Sx", "S", stop=slPrice, limit=tpPrice)
         tradedToday := true
         if showEntryLabels
-            txt = "ENTRY S\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(atr) + "\n" + "Buffer: " + f_price(buffer)
+            txt = "ENTRY S\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
             label.new(bar_index, entryPrice, txt, style=label.style_label_down, textalign=text.align_left, size=size.normal)
 
 // ── Exit detection + success/fail labels
@@ -157,9 +164,9 @@ if showExitLabels and closedThisBar
     label.new(bar_index, exitPrice, txt, style=label.style_label_left, textalign=text.align_left, size=size.normal)
 
 // ── Optional: show PDH/PDL lines
-// plot(prevHigh, "PDH", linewidth=2, style=plot.style_linebr)
-// plot(prevLow, "PDL", linewidth=2, style=plot.style_linebr)
+// plot(featPrevHighPrice, "PDH", linewidth=2, style=plot.style_linebr)
+// plot(featPrevLowPrice, "PDL", linewidth=2, style=plot.style_linebr)
 
 // ── Optional: show PDH/PDL lines (if you want)
-// plot(prevHigh, "PDH", linewidth=2, style=plot.style_linebr)
-// plot(prevLow,  "PDL", linewidth=2, style=plot.style_linebr)
+// plot(featPrevHighPrice, "PDH", linewidth=2, style=plot.style_linebr)
+// plot(featPrevLowPrice,  "PDL", linewidth=2, style=plot.style_linebr)
