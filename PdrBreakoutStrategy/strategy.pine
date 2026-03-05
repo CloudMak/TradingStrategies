@@ -4,6 +4,11 @@ strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, sca
 // ── Import library
 import maksim_owner/PrevDayLevels/1 as PDL
 
+enum TrendDirection
+    Down
+    Flat
+    Up
+
 // ── Inputs
 // Enables or disables the daily trade limit, affecting whether multiple entries can occur in one day.
 tradeOncePerDay = input.bool(true, "One trade per day")
@@ -44,9 +49,12 @@ f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
 f_feature_htfTrend(tfValue, fastLenValue, slowLenValue, signalLenValue) =>
     htfMacdLine = request.security(syminfo.tickerid, tfValue, ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), barmerge.gaps_off, barmerge.lookahead_off)
     htfSignalLine = request.security(syminfo.tickerid, tfValue, ta.ema(ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), signalLenValue), barmerge.gaps_off, barmerge.lookahead_off)
-    htfTrendUp = htfMacdLine > htfSignalLine
-    htfTrendDown = htfMacdLine < htfSignalLine
-    [htfTrendUp, htfTrendDown]
+    htfTrend = TrendDirection.Flat
+    if htfMacdLine > htfSignalLine
+        htfTrend := TrendDirection.Up
+    else if htfMacdLine < htfSignalLine
+        htfTrend := TrendDirection.Down
+    htfTrend
 f_model_longBreakout(closePrice, level, breakoutBuffer, lookbackBars) =>
     breakoutLevel = level + breakoutBuffer
     wasBelowInLookback = ta.lowest(closePrice[1], lookbackBars) <= breakoutLevel
@@ -65,7 +73,7 @@ featClose = close
 featATR = f_feature_atr(atrLen)
 [featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, bufferAtr)
-[featHTFTrendUp, featHTFTrendDown] = f_feature_htfTrend(htfTrendTf, htfMacdFastLen, htfMacdSlowLen, htfMacdSignalLen)
+featHTFTrend = f_feature_htfTrend(htfTrendTf, htfMacdFastLen, htfMacdSlowLen, htfMacdSignalLen)
 
 // ── One-trade-per-day gate
 newDay = ta.change(time("D")) != 0
@@ -77,8 +85,8 @@ canTrade = (not tradeOncePerDay) or (not tradedToday)
 // ── Model Layer
 modelLongCondRaw = f_model_longBreakout(featClose, featPrevHighPrice, featBreakoutBuffer, breakoutLookbackBars)
 modelShortCondRaw = f_model_shortBreakout(featClose, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
-modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrendUp
-modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrendDown
+modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Up
+modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Down
 modelLongCond = f_model_confirmed(modelLongCondRaw and modelLongTrendPass, useCloseConfirm)
 modelShortCond = f_model_confirmed(modelShortCondRaw and modelShortTrendPass, useCloseConfirm)
 
