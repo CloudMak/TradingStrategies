@@ -19,13 +19,16 @@ rr = input.float(2.0, "TP = RR*SL", minval=0.1, step=0.1)
 minStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, step=0.0001)
 // Sets ATR-based breakout buffer fraction, affecting breakout trigger sensitivity.
 bufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
+breakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
 // Toggles entry labels, affecting whether entry diagnostics are drawn on chart.
 showEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 showExitLabels = input.bool(true, "Show exit labels")
 useHTFTrendFilter = input.bool(true, "Use HTF trend filter")
 htfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
-htfEmaLen = input.int(200, "HTF EMA Length", minval=1)
+htfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
+htfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1)
+htfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1)
 apiKey = input.string("", "API Key")
 
 // ── Helpers
@@ -38,20 +41,20 @@ f_risk_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
 f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
 f_feature_atr(atrLength) => ta.atr(atrLength)
 f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
-f_feature_htfTrend(tfValue, lenValue) =>
-    htfClose = request.security(syminfo.tickerid, tfValue, close, barmerge.gaps_off, barmerge.lookahead_off)
-    htfEma = request.security(syminfo.tickerid, tfValue, ta.ema(close, lenValue), barmerge.gaps_off, barmerge.lookahead_off)
-    htfTrendUp = htfClose > htfEma
-    htfTrendDown = htfClose < htfEma
+f_feature_htfTrend(tfValue, fastLenValue, slowLenValue, signalLenValue) =>
+    htfMacdLine = request.security(syminfo.tickerid, tfValue, ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), barmerge.gaps_off, barmerge.lookahead_off)
+    htfSignalLine = request.security(syminfo.tickerid, tfValue, ta.ema(ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), signalLenValue), barmerge.gaps_off, barmerge.lookahead_off)
+    htfTrendUp = htfMacdLine > htfSignalLine
+    htfTrendDown = htfMacdLine < htfSignalLine
     [htfTrendUp, htfTrendDown]
-f_model_longBreakout(closePrice, level, breakoutBuffer) =>
+f_model_longBreakout(closePrice, level, breakoutBuffer, lookbackBars) =>
     breakoutLevel = level + breakoutBuffer
-    crossedUp = ta.crossover(closePrice, breakoutLevel)
-    closePrice > breakoutLevel and crossedUp
-f_model_shortBreakout(closePrice, level, breakoutBuffer) =>
+    wasBelowInLookback = ta.lowest(closePrice[1], lookbackBars) <= breakoutLevel
+    closePrice > breakoutLevel and wasBelowInLookback
+f_model_shortBreakout(closePrice, level, breakoutBuffer, lookbackBars) =>
     breakoutLevel = level - breakoutBuffer
-    crossedDown = ta.crossunder(closePrice, breakoutLevel)
-    closePrice < breakoutLevel and crossedDown
+    wasAboveInLookback = ta.highest(closePrice[1], lookbackBars) >= breakoutLevel
+    closePrice < breakoutLevel and wasAboveInLookback
 f_model_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
@@ -62,7 +65,7 @@ featClose = close
 featATR = f_feature_atr(atrLen)
 [featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, bufferAtr)
-[featHTFTrendUp, featHTFTrendDown] = f_feature_htfTrend(htfTrendTf, htfEmaLen)
+[featHTFTrendUp, featHTFTrendDown] = f_feature_htfTrend(htfTrendTf, htfMacdFastLen, htfMacdSlowLen, htfMacdSignalLen)
 
 // ── One-trade-per-day gate
 newDay = ta.change(time("D")) != 0
@@ -72,8 +75,8 @@ if newDay
 canTrade = (not tradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
-modelLongCondRaw = f_model_longBreakout(featClose, featPrevHighPrice, featBreakoutBuffer)
-modelShortCondRaw = f_model_shortBreakout(featClose, featPrevLowPrice, featBreakoutBuffer)
+modelLongCondRaw = f_model_longBreakout(featClose, featPrevHighPrice, featBreakoutBuffer, breakoutLookbackBars)
+modelShortCondRaw = f_model_shortBreakout(featClose, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
 modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrendUp
 modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrendDown
 modelLongCond = f_model_confirmed(modelLongCondRaw and modelLongTrendPass, useCloseConfirm)
