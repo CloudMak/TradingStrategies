@@ -23,6 +23,9 @@ bufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step
 showEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 showExitLabels = input.bool(true, "Show exit labels")
+useHTFTrendFilter = input.bool(true, "Use HTF trend filter")
+htfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
+htfEmaLen = input.int(200, "HTF EMA Length", minval=1)
 apiKey = input.string("", "API Key")
 
 // ── Helpers
@@ -35,9 +38,23 @@ f_risk_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
 f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
 f_feature_atr(atrLength) => ta.atr(atrLength)
 f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
-f_model_longBreakout(closePrice, breakoutLevel, crossedUp) => closePrice > breakoutLevel and crossedUp
-f_model_shortBreakout(closePrice, breakoutLevel, crossedDown) => closePrice < breakoutLevel and crossedDown
+f_feature_htfTrend(tfValue, lenValue) =>
+    htfClose = request.security(syminfo.tickerid, tfValue, close, barmerge.gaps_off, barmerge.lookahead_off)
+    htfEma = request.security(syminfo.tickerid, tfValue, ta.ema(close, lenValue), barmerge.gaps_off, barmerge.lookahead_off)
+    htfTrendUp = htfClose > htfEma
+    htfTrendDown = htfClose < htfEma
+    [htfTrendUp, htfTrendDown]
+f_model_longBreakout(closePrice, level, breakoutBuffer) =>
+    breakoutLevel = level + breakoutBuffer
+    crossedUp = ta.crossover(closePrice, breakoutLevel)
+    closePrice > breakoutLevel and crossedUp
+f_model_shortBreakout(closePrice, level, breakoutBuffer) =>
+    breakoutLevel = level - breakoutBuffer
+    crossedDown = ta.crossunder(closePrice, breakoutLevel)
+    closePrice < breakoutLevel and crossedDown
 f_model_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
+// Returns true when current bar already has an entry.
+f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
 
 // ── Feature Layer
@@ -45,6 +62,7 @@ featClose = close
 featATR = f_feature_atr(atrLen)
 [featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, bufferAtr)
+[featHTFTrendUp, featHTFTrendDown] = f_feature_htfTrend(htfTrendTf, htfEmaLen)
 
 // ── One-trade-per-day gate
 newDay = ta.change(time("D")) != 0
@@ -54,14 +72,12 @@ if newDay
 canTrade = (not tradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
-longBreakoutLevel = featPrevHighPrice + featBreakoutBuffer
-shortBreakoutLevel = featPrevLowPrice - featBreakoutBuffer
-modelLongCrossedUp = ta.crossover(featClose, longBreakoutLevel)
-modelShortCrossedDown = ta.crossunder(featClose, shortBreakoutLevel)
-modelLongCondRaw = f_model_longBreakout(featClose, longBreakoutLevel, modelLongCrossedUp)
-modelShortCondRaw = f_model_shortBreakout(featClose, shortBreakoutLevel, modelShortCrossedDown)
-modelLongCond = f_model_confirmed(modelLongCondRaw, useCloseConfirm)
-modelShortCond = f_model_confirmed(modelShortCondRaw, useCloseConfirm)
+modelLongCondRaw = f_model_longBreakout(featClose, featPrevHighPrice, featBreakoutBuffer)
+modelShortCondRaw = f_model_shortBreakout(featClose, featPrevLowPrice, featBreakoutBuffer)
+modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrendUp
+modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrendDown
+modelLongCond = f_model_confirmed(modelLongCondRaw and modelLongTrendPass, useCloseConfirm)
+modelShortCond = f_model_confirmed(modelShortCondRaw and modelShortTrendPass, useCloseConfirm)
 
 // ── Risk Management
 riskLongStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
@@ -81,7 +97,9 @@ var string lastSide = ""
 var int lastEntryBar = na
 
 // ── Entries + exits
-if canTrade and strategy.position_size == 0
+hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBar)
+isEntryAllowed = canTrade and strategy.position_size == 0 and (not hasEntryOnCurrentBar)
+if isEntryAllowed
     if modelLongCond
         entryPrice = featClose
         sd = riskLongStopDist
