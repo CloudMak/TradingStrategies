@@ -16,30 +16,30 @@ enum BreakoutSignal
 
 // ── Inputs
 // Enables or disables the daily trade limit, affecting whether multiple entries can occur in one day.
-tradeOncePerDay = input.bool(true, "One trade per day")
+inpTradeOncePerDay = input.bool(true, "One trade per day")
 // Requires bar close confirmation for signals, affecting when entries are considered valid.
-useCloseConfirm = input.bool(true, "Confirm on bar close")
+inpUseCloseConfirm = input.bool(true, "Confirm on bar close")
 // Sets ATR lookback length, affecting volatility measurement used in stops and labels.
-atrLen = input.int(14, "ATR Length", minval=1)
+inpAtrLen = input.int(14, "ATR Length", minval=1)
 // Sets ATR stop multiplier, affecting stop-loss distance from entry.
-atrMult = input.float(1.2, "SL = k*ATR", minval=0.1, step=0.1)
+inpAtrMult = input.float(1.2, "SL = k*ATR", minval=0.1, step=0.1)
 // Sets risk-reward ratio, affecting take-profit distance relative to stop distance.
-rr = input.float(2.0, "TP = RR*SL", minval=0.1, step=0.1)
+inpRr = input.float(2.0, "TP = RR*SL", minval=0.1, step=0.1)
 // Sets minimum stop floor as percent of entry, affecting the minimum allowed stop distance.
-minStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, step=0.0001)
+inpMinStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, step=0.0001)
 // Sets ATR-based breakout buffer fraction, affecting breakout trigger sensitivity.
-bufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
-breakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
+inpBufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
+inpBreakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
 // Toggles entry labels, affecting whether entry diagnostics are drawn on chart.
-showEntryLabels = input.bool(true, "Show entry labels")
+inpShowEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
-showExitLabels = input.bool(true, "Show exit labels")
-useHTFTrendFilter = input.bool(true, "Use HTF trend filter")
-htfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
-htfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
-htfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1)
-htfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1)
-apiKey = input.string("", "API Key")
+inpShowExitLabels = input.bool(true, "Show exit labels")
+inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter")
+inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
+inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
+inpHtfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1)
+inpHtfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1)
+inpApiKey = input.string("", "API Key")
 
 // ── Helpers
 f_price(x) => str.tostring(x, format.mintick)
@@ -88,35 +88,35 @@ f_model_isSignalFilteredByHtf(signalValue, signalAllowedValue, useFilterValue, h
 f_model_confirmedByBarstate(signalAllowedValue, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and signalAllowedValue) : signalAllowedValue
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
-f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
+f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
 
 // ── Feature Layer
 featClose = close
-featATR = f_feature_atr(atrLen)
+featATR = f_feature_atr(inpAtrLen)
 [featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
-featBreakoutBuffer = f_feature_breakoutBuffer(featATR, bufferAtr)
-featHTFTrend = f_feature_htfTrend(htfTrendTf, htfMacdFastLen, htfMacdSlowLen, htfMacdSignalLen)
+featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
+featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
 
 // ── One-trade-per-day gate
 newDay = ta.change(time("D")) != 0
 var bool tradedToday = false
 if newDay
     tradedToday := false
-canTrade = (not tradeOncePerDay) or (not tradedToday)
+canTrade = (not inpTradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
-modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevHighPrice, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
+modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevHighPrice, featPrevLowPrice, featBreakoutBuffer, inpBreakoutLookbackBars)
 modelSignalAllowed = modelBreakoutSignal != BreakoutSignal.None
-modelSignalAllowed := f_model_isSignalFilteredByHtf(modelBreakoutSignal, modelSignalAllowed, useHTFTrendFilter, featHTFTrend)
-modelSignalAllowed := f_model_confirmedByBarstate(modelSignalAllowed, useCloseConfirm)
+modelSignalAllowed := f_model_isSignalFilteredByHtf(modelBreakoutSignal, modelSignalAllowed, inpUseHTFTrendFilter, featHTFTrend)
+modelSignalAllowed := f_model_confirmedByBarstate(modelSignalAllowed, inpUseCloseConfirm)
 
 // ── Risk Management
-riskLongStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
-riskShortStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
+riskLongStopDist = f_risk_stopDist(featClose, featATR, inpAtrMult, inpMinStopPct)
+riskShortStopDist = f_risk_stopDist(featClose, featATR, inpAtrMult, inpMinStopPct)
 riskLongSLPrice = featClose - riskLongStopDist
-riskLongTPPrice = featClose + f_risk_tpDistance(riskLongStopDist, rr)
+riskLongTPPrice = featClose + f_risk_tpDistance(riskLongStopDist, inpRr)
 riskShortSLPrice = featClose + riskShortStopDist
-riskShortTPPrice = featClose - f_risk_tpDistance(riskShortStopDist, rr)
+riskShortTPPrice = featClose - f_risk_tpDistance(riskShortStopDist, inpRr)
 
 // ── Persistent trade params (for exit labels)
 var float lastEntryPrice = na
@@ -147,18 +147,18 @@ if isEntryAllowed and modelSignalAllowed
     lastEntryBar := bar_index
     strategy.entry(entrySide, isLongSignal ? strategy.long : strategy.short)
     if barstate.isrealtime
-        alert(f_alertMessage(apiKey, syminfo.ticker, alertSide, slPrice, tpPrice))
+        alert(f_alertMessage(inpApiKey, syminfo.ticker, alertSide, slPrice, tpPrice))
     strategy.exit(entrySide + "x", entrySide, stop=slPrice, limit=tpPrice)
     tradedToday := true
-    if showEntryLabels
-        txt = (isLongSignal ? "ENTRY L\n" : "ENTRY S\n") + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(stopDistance) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
+    if inpShowEntryLabels
+        txt = (isLongSignal ? "ENTRY L\n" : "ENTRY S\n") + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(stopDistance) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(inpRr) + ")\n" + "ATR(" + str.tostring(inpAtrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
         label.new(bar_index, entryPrice, txt, style=isLongSignal ? label.style_label_up : label.style_label_down, textalign=text.align_left, size=size.normal)
 
 // ── Exit detection + success/fail labels
 posNow = strategy.position_size
 posPrev = strategy.position_size[1]
 closedThisBar = (posPrev != 0) and (posNow == 0)
-if showExitLabels and closedThisBar
+if inpShowExitLabels and closedThisBar
     wasLong = posPrev > 0
     float exitPrice = na
     reason = ""
