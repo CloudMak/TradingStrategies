@@ -9,6 +9,11 @@ enum TrendDirection
     Flat
     Up
 
+enum BreakoutSignal
+    None
+    Long
+    Short
+
 // ── Inputs
 // Enables or disables the daily trade limit, affecting whether multiple entries can occur in one day.
 tradeOncePerDay = input.bool(true, "One trade per day")
@@ -55,14 +60,19 @@ f_feature_htfTrend(tfValue, fastLenValue, slowLenValue, signalLenValue) =>
     else if htfMacdLine < htfSignalLine
         htfTrend := TrendDirection.Down
     htfTrend
-f_model_longBreakout(closePrice, level, breakoutBuffer, lookbackBars) =>
-    breakoutLevel = level + breakoutBuffer
-    wasBelowInLookback = ta.lowest(closePrice[1], lookbackBars) <= breakoutLevel
-    closePrice > breakoutLevel and wasBelowInLookback
-f_model_shortBreakout(closePrice, level, breakoutBuffer, lookbackBars) =>
-    breakoutLevel = level - breakoutBuffer
-    wasAboveInLookback = ta.highest(closePrice[1], lookbackBars) >= breakoutLevel
-    closePrice < breakoutLevel and wasAboveInLookback
+f_model_breakoutSignal(closePrice, highLevel, lowLevel, breakoutBuffer, lookbackBars) =>
+    longBreakoutLevel = highLevel + breakoutBuffer
+    shortBreakoutLevel = lowLevel - breakoutBuffer
+    wasBelowInLookback = ta.lowest(closePrice[1], lookbackBars) <= longBreakoutLevel
+    wasAboveInLookback = ta.highest(closePrice[1], lookbackBars) >= shortBreakoutLevel
+    longBreakout = closePrice > longBreakoutLevel and wasBelowInLookback
+    shortBreakout = closePrice < shortBreakoutLevel and wasAboveInLookback
+    breakoutSignal = BreakoutSignal.None
+    if longBreakout
+        breakoutSignal := BreakoutSignal.Long
+    else if shortBreakout
+        breakoutSignal := BreakoutSignal.Short
+    breakoutSignal
 f_model_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
@@ -83,8 +93,9 @@ if newDay
 canTrade = (not tradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
-modelLongCondRaw = f_model_longBreakout(featClose, featPrevHighPrice, featBreakoutBuffer, breakoutLookbackBars)
-modelShortCondRaw = f_model_shortBreakout(featClose, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
+modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevHighPrice, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
+modelLongCondRaw = modelBreakoutSignal == BreakoutSignal.Long
+modelShortCondRaw = modelBreakoutSignal == BreakoutSignal.Short
 modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Up
 modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Down
 modelLongCond = f_model_confirmed(modelLongCondRaw and modelLongTrendPass, useCloseConfirm)
