@@ -73,7 +73,19 @@ f_model_breakoutSignal(closePrice, highLevel, lowLevel, breakoutBuffer, lookback
     else if shortBreakout
         breakoutSignal := BreakoutSignal.Short
     breakoutSignal
-f_model_confirmed(rawSignal, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and rawSignal) : rawSignal
+// Applies HTF trend filter to current signal state.
+// If filter is disabled, returns incoming signalAllowedValue unchanged.
+f_model_isSignalFilteredByHtf(signalValue, signalAllowedValue, useFilterValue, htfTrendValue) =>
+    signalPassesHtf = signalAllowedValue
+    if useFilterValue
+        if signalValue == BreakoutSignal.Long
+            signalPassesHtf := signalAllowedValue and htfTrendValue == TrendDirection.Up
+        else if signalValue == BreakoutSignal.Short
+            signalPassesHtf := signalAllowedValue and htfTrendValue == TrendDirection.Down
+        else
+            signalPassesHtf := false
+    signalPassesHtf
+f_model_confirmedByBarstate(signalAllowedValue, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and signalAllowedValue) : signalAllowedValue
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
@@ -94,12 +106,9 @@ canTrade = (not tradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
 modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevHighPrice, featPrevLowPrice, featBreakoutBuffer, breakoutLookbackBars)
-modelLongCondRaw = modelBreakoutSignal == BreakoutSignal.Long
-modelShortCondRaw = modelBreakoutSignal == BreakoutSignal.Short
-modelLongTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Up
-modelShortTrendPass = (not useHTFTrendFilter) or featHTFTrend == TrendDirection.Down
-modelLongCond = f_model_confirmed(modelLongCondRaw and modelLongTrendPass, useCloseConfirm)
-modelShortCond = f_model_confirmed(modelShortCondRaw and modelShortTrendPass, useCloseConfirm)
+modelSignalAllowed = modelBreakoutSignal != BreakoutSignal.None
+modelSignalAllowed := f_model_isSignalFilteredByHtf(modelBreakoutSignal, modelSignalAllowed, useHTFTrendFilter, featHTFTrend)
+modelSignalAllowed := f_model_confirmedByBarstate(modelSignalAllowed, useCloseConfirm)
 
 // ── Risk Management
 riskLongStopDist = f_risk_stopDist(featClose, featATR, atrMult, minStopPct)
@@ -121,47 +130,29 @@ var int lastEntryBar = na
 // ── Entries + exits
 hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBar)
 isEntryAllowed = canTrade and strategy.position_size == 0 and (not hasEntryOnCurrentBar)
-if isEntryAllowed
-    if modelLongCond
-        entryPrice = featClose
-        sd = riskLongStopDist
-        slPrice = riskLongSLPrice
-        tpPrice = riskLongTPPrice
-        lastEntryPrice := entryPrice
-        lastSLPrice := slPrice
-        lastTPPrice := tpPrice
-        lastATR := featATR
-        lastSD := sd
-        lastSide := "L"
-        lastEntryBar := bar_index
-        strategy.entry("L", strategy.long)
-        if barstate.isrealtime
-            alert(f_alertMessage(apiKey, syminfo.ticker, "Buy", slPrice, tpPrice))
-        strategy.exit("Lx", "L", stop=slPrice, limit=tpPrice)
-        tradedToday := true
-        if showEntryLabels
-            txt = "ENTRY L\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
-            label.new(bar_index, entryPrice, txt, style=label.style_label_up, textalign=text.align_left, size=size.normal)
-    if modelShortCond
-        entryPrice = featClose
-        sd = riskShortStopDist
-        slPrice = riskShortSLPrice
-        tpPrice = riskShortTPPrice
-        lastEntryPrice := entryPrice
-        lastSLPrice := slPrice
-        lastTPPrice := tpPrice
-        lastATR := featATR
-        lastSD := sd
-        lastSide := "S"
-        lastEntryBar := bar_index
-        strategy.entry("S", strategy.short)
-        if barstate.isrealtime
-            alert(f_alertMessage(apiKey, syminfo.ticker, "Sell", slPrice, tpPrice))
-        strategy.exit("Sx", "S", stop=slPrice, limit=tpPrice)
-        tradedToday := true
-        if showEntryLabels
-            txt = "ENTRY S\n" + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(sd) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
-            label.new(bar_index, entryPrice, txt, style=label.style_label_down, textalign=text.align_left, size=size.normal)
+if isEntryAllowed and modelSignalAllowed
+    isLongSignal = modelBreakoutSignal == BreakoutSignal.Long
+    entrySide = isLongSignal ? "L" : "S"
+    alertSide = isLongSignal ? "Buy" : "Sell"
+    entryPrice = featClose
+    stopDistance = isLongSignal ? riskLongStopDist : riskShortStopDist
+    slPrice = isLongSignal ? riskLongSLPrice : riskShortSLPrice
+    tpPrice = isLongSignal ? riskLongTPPrice : riskShortTPPrice
+    lastEntryPrice := entryPrice
+    lastSLPrice := slPrice
+    lastTPPrice := tpPrice
+    lastATR := featATR
+    lastSD := stopDistance
+    lastSide := entrySide
+    lastEntryBar := bar_index
+    strategy.entry(entrySide, isLongSignal ? strategy.long : strategy.short)
+    if barstate.isrealtime
+        alert(f_alertMessage(apiKey, syminfo.ticker, alertSide, slPrice, tpPrice))
+    strategy.exit(entrySide + "x", entrySide, stop=slPrice, limit=tpPrice)
+    tradedToday := true
+    if showEntryLabels
+        txt = (isLongSignal ? "ENTRY L\n" : "ENTRY S\n") + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(stopDistance) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(rr) + ")\n" + "ATR(" + str.tostring(atrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
+        label.new(bar_index, entryPrice, txt, style=isLongSignal ? label.style_label_up : label.style_label_down, textalign=text.align_left, size=size.normal)
 
 // ── Exit detection + success/fail labels
 posNow = strategy.position_size
