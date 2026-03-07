@@ -2,7 +2,7 @@
 strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, scale=scale.right, max_labels_count=500)
 
 // ── Import library
-import maksim_owner/PrevDayLevels/1 as PDL
+import maksim_owner/PrevDayLevels/3 as PDL
 
 enum TrendDirection
     Down
@@ -34,6 +34,8 @@ inpBreakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
 inpShowEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 inpShowExitLabels = input.bool(true, "Show exit labels")
+inpShowPrevDayLevels = input.bool(false, "Show prev day levels")
+inpShowPrevDayOpenClose = input.bool(false, "Show prev day open/close")
 inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter")
 inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
 inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
@@ -42,8 +44,8 @@ inpHtfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1)
 inpApiKey = input.string("", "API Key")
 
 // ── Helpers
-f_price(x) => str.tostring(x, format.mintick)
-f_num(x) => str.tostring(x, "#.####")
+f_formatPrice(x) => str.tostring(x, format.mintick)
+f_formatNumber(x) => str.tostring(x, "#.####")
 f_risk_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
     rawStop = atrFactor * atrValue
     floorStop = stopFloorPct > 0.0 ? entry * stopFloorPct : 0.0
@@ -88,12 +90,12 @@ f_model_isSignalFilteredByHtf(signalValue, signalAllowedValue, useFilterValue, h
 f_model_confirmedByBarstate(signalAllowedValue, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and signalAllowedValue) : signalAllowedValue
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
-f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
+f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
 
 // ── Feature Layer
 featClose = close
 featATR = f_feature_atr(inpAtrLen)
-[featPrevHighPrice, featPrevLowPrice, _, _] = PDL.getPrevDayOHLC()
+featPrevDayOhlc = PDL.getPrevDayOHLC()
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
 
@@ -105,7 +107,7 @@ if newDay
 canTrade = (not inpTradeOncePerDay) or (not tradedToday)
 
 // ── Model Layer
-modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevHighPrice, featPrevLowPrice, featBreakoutBuffer, inpBreakoutLookbackBars)
+modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevDayOhlc.high, featPrevDayOhlc.low, featBreakoutBuffer, inpBreakoutLookbackBars)
 modelSignalAllowed = modelBreakoutSignal != BreakoutSignal.None
 modelSignalAllowed := f_model_isSignalFilteredByHtf(modelBreakoutSignal, modelSignalAllowed, inpUseHTFTrendFilter, featHTFTrend)
 modelSignalAllowed := f_model_confirmedByBarstate(modelSignalAllowed, inpUseCloseConfirm)
@@ -151,7 +153,7 @@ if isEntryAllowed and modelSignalAllowed
     strategy.exit(entrySide + "x", entrySide, stop=slPrice, limit=tpPrice)
     tradedToday := true
     if inpShowEntryLabels
-        txt = (isLongSignal ? "ENTRY L\n" : "ENTRY S\n") + "Entry: " + f_price(entryPrice) + "\n" + "SL: " + f_price(slPrice) + " (dist " + f_price(stopDistance) + ")\n" + "TP: " + f_price(tpPrice) + " (RR " + f_num(inpRr) + ")\n" + "ATR(" + str.tostring(inpAtrLen) + "): " + f_price(featATR) + "\n" + "Buffer: " + f_price(featBreakoutBuffer)
+        txt = (isLongSignal ? "ENTRY L\n" : "ENTRY S\n") + "Entry: " + f_formatPrice(entryPrice) + "\n" + "SL: " + f_formatPrice(slPrice) + " (dist " + f_formatPrice(stopDistance) + ")\n" + "TP: " + f_formatPrice(tpPrice) + " (RR " + f_formatNumber(inpRr) + ")\n" + "ATR(" + str.tostring(inpAtrLen) + "): " + f_formatPrice(featATR) + "\n" + "Buffer: " + f_formatPrice(featBreakoutBuffer)
         label.new(bar_index, entryPrice, txt, style=isLongSignal ? label.style_label_up : label.style_label_down, textalign=text.align_left, size=size.normal)
 
 // ── Exit detection + success/fail labels
@@ -191,13 +193,11 @@ if inpShowExitLabels and closedThisBar
     if (not na(lastEntryPrice)) and (not na(exitPrice))
         pnl := (wasLong ? (exitPrice - lastEntryPrice) : (lastEntryPrice - exitPrice)) * qty
     head = win ? "WIN ✅" : loss ? "LOSS ❌" : "CLOSED"
-    txt = head + " (" + reason + ")\n" + "Side: " + (wasLong ? "L" : "S") + "\n" + "Entry: " + f_price(lastEntryPrice) + "\n" + "Exit: " + f_price(exitPrice) + "\n" + "SL: " + f_price(lastSLPrice) + "\n" + "TP: " + f_price(lastTPPrice) + "\n" + "ATR: " + f_price(lastATR) + "\n" + "StopDist: " + f_price(lastSD) + "\n" + "Qty: " + f_num(qty) + (not na(notional) ? ("\nNotional: " + f_num(notional)) : "") + (not na(pnl) ? ("\nPnL(est): " + f_num(pnl)) : "")
+    txt = head + " (" + reason + ")\n" + "Side: " + (wasLong ? "L" : "S") + "\n" + "Entry: " + f_formatPrice(lastEntryPrice) + "\n" + "Exit: " + f_formatPrice(exitPrice) + "\n" + "SL: " + f_formatPrice(lastSLPrice) + "\n" + "TP: " + f_formatPrice(lastTPPrice) + "\n" + "ATR: " + f_formatPrice(lastATR) + "\n" + "StopDist: " + f_formatPrice(lastSD) + "\n" + "Qty: " + f_formatNumber(qty) + (not na(notional) ? ("\nNotional: " + f_formatNumber(notional)) : "") + (not na(pnl) ? ("\nPnL(est): " + f_formatNumber(pnl)) : "")
     label.new(bar_index, exitPrice, txt, style=label.style_label_left, textalign=text.align_left, size=size.normal)
 
-// ── Optional: show PDH/PDL lines
-// plot(featPrevHighPrice, "PDH", linewidth=2, style=plot.style_linebr)
-// plot(featPrevLowPrice, "PDL", linewidth=2, style=plot.style_linebr)
-
-// ── Optional: show PDH/PDL lines (if you want)
-// plot(featPrevHighPrice, "PDH", linewidth=2, style=plot.style_linebr)
-// plot(featPrevLowPrice,  "PDL", linewidth=2, style=plot.style_linebr)
+// ── Optional: show previous day levels
+// plot(inpShowPrevDayLevels ? featPrevDayOhlc.high : na, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
+// plot(inpShowPrevDayLevels ? featPrevDayOhlc.low : na, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
+// plot(inpShowPrevDayLevels and inpShowPrevDayOpenClose ? featPrevDayOhlc.open : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
+// plot(inpShowPrevDayLevels and inpShowPrevDayOpenClose ? featPrevDayOhlc.close : na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)

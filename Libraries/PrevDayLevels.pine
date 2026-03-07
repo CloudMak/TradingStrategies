@@ -1,6 +1,12 @@
 ﻿//@version=6
 library("PrevDayLevels", overlay=false, dynamic_requests=true)
 
+export type PrevDayOHLC
+    float high
+    float low
+    float open
+    float close
+
 // Returns previous day OHLC computed from the exchange daily timeframe.
 // lookahead_off => no repaint from future daily bars.
 export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
@@ -14,8 +20,8 @@ export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
     float prevOpen  = dOpen[1]
     float prevClose = dClose[1]
 
-    [prevHigh, prevLow, prevOpen, prevClose]
+    PrevDayOHLC.new(prevHigh, prevLow, prevOpen, prevClose)
 
 export getPrevDayRange(string tickerId = syminfo.tickerid) =>
-    [ph, pl, _, _] = getPrevDayOHLC(tickerId)
-    math.max(ph - pl, syminfo.mintick)
+    prevDay = getPrevDayOHLC(tickerId)
+    math.max(prevDay.high - prevDay.low, syminfo.mintick)
