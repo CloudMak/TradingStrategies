@@ -2,7 +2,7 @@
 strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, scale=scale.right, max_labels_count=500)
 
 // ── Import library
-import maksim_owner/PrevDayLevels/3 as PDL
+import maksim_owner/PrevDayLevels/4 as PDL
 
 enum TrendDirection
     Down
@@ -35,7 +35,6 @@ inpShowEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 inpShowExitLabels = input.bool(true, "Show exit labels")
 inpShowPrevDayLevels = input.bool(false, "Show prev day levels")
-inpShowPrevDayOpenClose = input.bool(false, "Show prev day open/close")
 inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter")
 inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
 inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
@@ -197,7 +196,15 @@ if inpShowExitLabels and closedThisBar
     label.new(bar_index, exitPrice, txt, style=label.style_label_left, textalign=text.align_left, size=size.normal)
 
 // ── Optional: show previous day levels
-// plot(inpShowPrevDayLevels ? featPrevDayOhlc.high : na, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
-// plot(inpShowPrevDayLevels ? featPrevDayOhlc.low : na, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
-// plot(inpShowPrevDayLevels and inpShowPrevDayOpenClose ? featPrevDayOhlc.open : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
-// plot(inpShowPrevDayLevels and inpShowPrevDayOpenClose ? featPrevDayOhlc.close : na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
+plot(inpShowPrevDayLevels ? featPrevDayOhlc.high : na, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(inpShowPrevDayLevels ? featPrevDayOhlc.low : na, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
+plot(na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
+plot(na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
+
+// ── Optional: show previous day labels (same as indicator)
+var label[] prevDayLevelLabels = array.new_label()
+if inpShowPrevDayLevels
+    PDL.drawDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
+else
+    while array.size(prevDayLevelLabels) > 0
+        label.delete(array.shift(prevDayLevelLabels))
