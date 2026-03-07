@@ -1,30 +1,24 @@
 //@version=6
 indicator("Levels / Previous Day Levels (labels per day)", overlay=true, max_labels_count=500)
 
-import maksim_owner/PrevDayLevels/3 as PDL
+import maksim_owner/PrevDayLevels/4 as PDL
 
-if not timeframe.isintraday
-    runtime.error("Works only on timeframes below 1D")
+// --- Inputs
+inpShowOpenClose  = input.bool(false, "Show Prev Open/Close")
+inpLabelDisplayPeriodDays = input.int(60, "Label display period limit (days)", minval=1, maxval=300)
 
-showOC  = input.bool(false, "Show Prev Open/Close")
-keepDays = input.int(60, "Keep labels (days)", minval=1, maxval=300)
-prevDayOhlc = PDL.getPrevDayOHLC()
+// --- RUNTIME
+PDL.requireIntradayTimeframe()
 
-// --- линии
-plot(prevDayOhlc.high, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
-plot(prevDayOhlc.low, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
-plot(showOC ? prevDayOhlc.open : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
-plot(showOC ? prevDayOhlc.close : na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
+// --- Features
+featPrevDayOhlc = PDL.getPrevDayOHLC()
 
+// --- Rendering
+plot(featPrevDayOhlc.high, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(featPrevDayOhlc.low, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
+plot(inpShowOpenClose ? featPrevDayOhlc.open : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
+plot(inpShowOpenClose ? featPrevDayOhlc.close : na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
+
+// --- Annotations
 var label[] lbls = array.new_label()
-newDay = ta.change(time("D")) != 0
-if newDay
-    array.push(lbls, label.new(bar_index, prevDayOhlc.high, "PDH " + str.tostring(prevDayOhlc.high, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.red, 0), size=size.normal))
-    array.push(lbls, label.new(bar_index, prevDayOhlc.low, "PDL " + str.tostring(prevDayOhlc.low, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.green, 0), size=size.normal))
-    if showOC
-        array.push(lbls, label.new(bar_index, prevDayOhlc.open, "PDO " + str.tostring(prevDayOhlc.open, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny))
-        array.push(lbls, label.new(bar_index, prevDayOhlc.close, "PDC " + str.tostring(prevDayOhlc.close, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.blue, 0), size=size.tiny))
-
-    maxLabels = keepDays * (showOC ? 4 : 2)
-    while array.size(lbls) > maxLabels
-        label.delete(array.shift(lbls))
+PDL.drawDayLabels(lbls, featPrevDayOhlc, inpShowOpenClose, inpLabelDisplayPeriodDays)

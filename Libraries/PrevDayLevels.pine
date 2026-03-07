@@ -1,12 +1,14 @@
 ﻿//@version=6
 library("PrevDayLevels", overlay=false, dynamic_requests=true)
 
+// --- Core Types
 export type PrevDayOHLC
     float high
     float low
     float open
     float close
 
+// --- Core Data API
 // Returns previous day OHLC computed from the exchange daily timeframe.
 // lookahead_off => no repaint from future daily bars.
 export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
@@ -25,3 +27,38 @@ export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
 export getPrevDayRange(string tickerId = syminfo.tickerid) =>
     prevDay = getPrevDayOHLC(tickerId)
     math.max(prevDay.high - prevDay.low, syminfo.mintick)
+
+// --- Indicator API: Previous Day Levels with labels per day
+
+f_drawLevelLabel(label[] labels, float price, string lineTitle, color bgColor, textSize) =>
+    labelText = str.format("{0} {1}", lineTitle, str.tostring(price, format.mintick))
+    newLabel = label.new(
+         bar_index,
+         price,
+         labelText,
+         xloc=xloc.bar_index,
+         yloc=yloc.price,
+         style=label.style_label_lower_left,
+         textcolor=color.white,
+         color=bgColor,
+         size=textSize
+     )
+    array.push(labels, newLabel)
+
+export drawDayLabels(label[] labels, PrevDayOHLC prevDayOhlc, bool showOpenClose, int labelDisplayPeriodDays) =>
+    newDay = ta.change(time("D")) != 0
+    if newDay
+        f_drawLevelLabel(labels, prevDayOhlc.high, "PDH", color.new(color.red, 0), size.normal)
+        f_drawLevelLabel(labels, prevDayOhlc.low, "PDL", color.new(color.green, 0), size.normal)
+
+        if showOpenClose
+            f_drawLevelLabel(labels, prevDayOhlc.open, "PDO", color.new(color.orange, 0), size.tiny)
+            f_drawLevelLabel(labels, prevDayOhlc.close, "PDC", color.new(color.blue, 0), size.tiny)
+
+        maxLabels = labelDisplayPeriodDays * (showOpenClose ? 4 : 2)
+        while array.size(labels) > maxLabels
+            label.delete(array.shift(labels))
+
+export requireIntradayTimeframe() =>
+    if not timeframe.isintraday
+        runtime.error("Works only on timeframes below 1D")
