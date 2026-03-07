@@ -87,7 +87,7 @@ f_model_isSignalFilteredByHtf(signalValue, signalAllowedValue, useFilterValue, h
     signalPassesHtf
 f_model_confirmedByBarstate(signalAllowedValue, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and signalAllowedValue) : signalAllowedValue
 // Returns true when current bar already has an entry.
-f_hasEntryOnCurrentBar(lastEntryBarValue) => (not na(lastEntryBarValue)) and bar_index == lastEntryBarValue
+f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\"}"
 
 // ── Feature Layer
@@ -125,10 +125,10 @@ var float lastTPPrice = na
 var float lastATR = na
 var float lastSD = na
 var string lastSide = ""
-var int lastEntryBar = na
+var int lastEntryBarIndex = na
 
 // ── Entries + exits
-hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBar)
+hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBarIndex)
 isEntryAllowed = canTrade and strategy.position_size == 0 and (not hasEntryOnCurrentBar)
 if isEntryAllowed and modelSignalAllowed
     isLongSignal = modelBreakoutSignal == BreakoutSignal.Long
@@ -144,7 +144,7 @@ if isEntryAllowed and modelSignalAllowed
     lastATR := featATR
     lastSD := stopDistance
     lastSide := entrySide
-    lastEntryBar := bar_index
+    lastEntryBarIndex := bar_index
     strategy.entry(entrySide, isLongSignal ? strategy.long : strategy.short)
     if barstate.isrealtime
         alert(f_alertMessage(inpApiKey, syminfo.ticker, alertSide, slPrice, tpPrice))

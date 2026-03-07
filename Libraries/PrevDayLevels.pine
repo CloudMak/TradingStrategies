@@ -1,4 +1,4 @@
-﻿//@version=5
+﻿//@version=6
 library("PrevDayLevels", overlay=false, dynamic_requests=true)
 
 // Returns previous day OHLC computed from the exchange daily timeframe.

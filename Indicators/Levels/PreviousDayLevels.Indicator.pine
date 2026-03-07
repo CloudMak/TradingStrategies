@@ -1,0 +1,38 @@
+//@version=6
+indicator("Levels / Previous Day Levels (labels per day)", overlay=true, max_labels_count=500)
+
+import maksim_owner/PrevDayLevels/2 as PDL
+
+if not timeframe.isintraday
+    runtime.error("Works only on timeframes below 1D")
+
+[prevHigh, prevLow, prevOpen, prevClose] = PDL.getPrevDayOHLC()
+
+showOC  = input.bool(false, "Show Prev Open/Close")
+keepDays = input.int(60, "Keep labels (days)", minval=1, maxval=300)
+
+// --- линии
+plot(prevHigh, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(prevLow,  "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
+plot(showOC ? prevOpen  : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
+plot(showOC ? prevClose : na, "PDC", color=color.blue,   linewidth=1, style=plot.style_linebr)
+
+// --- хранилище label'ов (чтобы удалять старые)
+var label[] lbls = array.new_label()
+
+newDay = ta.change(time("D"))
+
+if newDay
+    // PDH / PDL
+    array.push(lbls, label.new(bar_index, prevHigh, "PDH " + str.tostring(prevHigh, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.red, 0), size=size.normal))
+    array.push(lbls, label.new(bar_index, prevLow,  "PDL " + str.tostring(prevLow,  format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.green, 0), size=size.normal))
+
+    // PDO / PDC (опционально)
+    if showOC
+        array.push(lbls, label.new(bar_index, prevOpen,  "PDO " + str.tostring(prevOpen,  format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny))
+        array.push(lbls, label.new(bar_index, prevClose, "PDC " + str.tostring(prevClose, format.mintick), xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_lower_left, textcolor=color.white, color=color.new(color.blue, 0), size=size.tiny))
+
+    // чистка старых (на каждый день 2 или 4 label'а)
+    maxLabels = keepDays * (showOC ? 4 : 2)
+    while array.size(lbls) > maxLabels
+        label.delete(array.shift(lbls))
