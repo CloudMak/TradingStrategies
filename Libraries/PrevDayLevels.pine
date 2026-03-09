@@ -10,17 +10,12 @@ export type PrevDayOHLC
 
 // --- Core Data API
 // Returns previous day OHLC computed from the exchange daily timeframe.
-// lookahead_off => no repaint from future daily bars.
+// lookahead_on + [1] => previous closed day values without repaint.
 export getPrevDayOHLC(string tickerId = syminfo.tickerid) =>
-    float dHigh  = request.security(tickerId, "D", high,  barmerge.gaps_off, barmerge.lookahead_off)
-    float dLow   = request.security(tickerId, "D", low,   barmerge.gaps_off, barmerge.lookahead_off)
-    float dOpen  = request.security(tickerId, "D", open,  barmerge.gaps_off, barmerge.lookahead_off)
-    float dClose = request.security(tickerId, "D", close, barmerge.gaps_off, barmerge.lookahead_off)
-
-    float prevHigh  = dHigh[1]
-    float prevLow   = dLow[1]
-    float prevOpen  = dOpen[1]
-    float prevClose = dClose[1]
+    float prevHigh  = request.security(tickerId, "D", high[1],  barmerge.gaps_off, barmerge.lookahead_on)
+    float prevLow   = request.security(tickerId, "D", low[1],   barmerge.gaps_off, barmerge.lookahead_on)
+    float prevOpen  = request.security(tickerId, "D", open[1],  barmerge.gaps_off, barmerge.lookahead_on)
+    float prevClose = request.security(tickerId, "D", close[1], barmerge.gaps_off, barmerge.lookahead_on)
 
     PrevDayOHLC.new(prevHigh, prevLow, prevOpen, prevClose)
 

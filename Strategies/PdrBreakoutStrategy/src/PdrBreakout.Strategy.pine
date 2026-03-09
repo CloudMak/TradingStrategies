@@ -16,7 +16,7 @@ enum BreakoutSignal
 
 // ── Inputs
 // Enables or disables the daily trade limit, affecting whether multiple entries can occur in one day.
-inpTradeOncePerDay = input.bool(true, "One trade per day")
+inpTradeOncePerDay = input.bool(false, "One trade per day")
 // Requires bar close confirmation for signals, affecting when entries are considered valid.
 inpUseCloseConfirm = input.bool(true, "Confirm on bar close")
 // Sets ATR lookback length, affecting volatility measurement used in stops and labels.
@@ -35,6 +35,7 @@ inpShowEntryLabels = input.bool(true, "Show entry labels")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 inpShowExitLabels = input.bool(true, "Show exit labels")
 inpShowPrevDayLevels = input.bool(false, "Show prev day levels")
+inpShowModelSignalLog = input.bool(false, "Show model signal log")
 inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter")
 inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
 inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
@@ -50,7 +51,8 @@ f_risk_stopDist(entry, atrValue, atrFactor, stopFloorPct) =>
     floorStop = stopFloorPct > 0.0 ? entry * stopFloorPct : 0.0
     math.max(rawStop, floorStop)
 f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
-f_feature_atr(atrLength) => ta.atr(atrLength)
+f_feature_atr(atrLength, atrTfValue = "D") =>
+    request.security(syminfo.tickerid, atrTfValue, ta.atr(atrLength)[1], barmerge.gaps_off, barmerge.lookahead_on)
 f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
 f_feature_htfTrend(tfValue, fastLenValue, slowLenValue, signalLenValue) =>
     htfMacdLine = request.security(syminfo.tickerid, tfValue, ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), barmerge.gaps_off, barmerge.lookahead_off)
@@ -87,13 +89,15 @@ f_model_isSignalFilteredByHtf(signalValue, signalAllowedValue, useFilterValue, h
             signalPassesHtf := false
     signalPassesHtf
 f_model_confirmedByBarstate(signalAllowedValue, requireCloseConfirm) => requireCloseConfirm ? (barstate.isconfirmed and signalAllowedValue) : signalAllowedValue
+f_model_signalName(signalValue) =>
+    signalValue == BreakoutSignal.Long ? "LONG" : signalValue == BreakoutSignal.Short ? "SHORT" : "NONE"
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
 
 // ── Feature Layer
 featClose = close
-featATR = f_feature_atr(inpAtrLen)
+featATR = f_feature_atr(inpAtrLen, "D")
 featPrevDayOhlc = PDL.getPrevDayOHLC()
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
@@ -131,6 +135,14 @@ var int lastEntryBarIndex = na
 // ── Entries + exits
 hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBarIndex)
 isEntryAllowed = canTrade and strategy.position_size == 0 and (not hasEntryOnCurrentBar)
+
+// ── Model Signal Log (all raw model signals)
+if inpShowModelSignalLog and modelBreakoutSignal != BreakoutSignal.None
+    signalName = f_model_signalName(modelBreakoutSignal)
+    gateText = modelSignalAllowed ? "ALLOW" : "BLOCK"
+    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPrevDayOhlc.high=" + f_formatPrice(featPrevDayOhlc.high) + " | featPrevDayOhlc.low=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
+    log.info(logText)
+    
 if isEntryAllowed and modelSignalAllowed
     isLongSignal = modelBreakoutSignal == BreakoutSignal.Long
     entrySide = isLongSignal ? "L" : "S"
@@ -198,8 +210,8 @@ if inpShowExitLabels and closedThisBar
 // ── Optional: show previous day levels
 plot(inpShowPrevDayLevels ? featPrevDayOhlc.high : na, "PDH", color=color.red, linewidth=2, style=plot.style_linebr)
 plot(inpShowPrevDayLevels ? featPrevDayOhlc.low : na, "PDL", color=color.green, linewidth=2, style=plot.style_linebr)
-plot(na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
-plot(na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
+plot(inpShowPrevDayLevels ? featPrevDayOhlc.high + featBreakoutBuffer : na, "PDH + ATR Buffer", color=color.new(#fff200, 35), linewidth=1, style=plot.style_linebr)
+plot(inpShowPrevDayLevels ? featPrevDayOhlc.low - featBreakoutBuffer : na, "PDL - ATR Buffer", color=color.new(#3aaf00, 35), linewidth=1, style=plot.style_linebr)
 
 // ── Optional: show previous day labels (same as indicator)
 var label[] prevDayLevelLabels = array.new_label()
