@@ -1,0 +1,20 @@
+//@version=6
+strategy("Webhook Test / One-shot alert()", overlay=true, pyramiding=0)
+
+apiKeyInput = input.string("123", "apiKey")
+sideInput = input.string("Sell", "side", options=["Buy","Sell"])
+slInput = input.float(123.0, "SL")
+tpInput = input.float(124.0, "TP")
+
+f_price(x) => str.tostring(x, format.mintick)
+f_msg(apiKey, side, slPrice, tpPrice, signalId) => "{\"apiKey\":\"" + apiKey + "\",\"ticker\":\"" + syminfo.ticker + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\",\"signalId\":\"" + signalId + "\"}"
+
+var bool sent = false
+
+if barstate.isnew
+    sent := false
+
+if barstate.isrealtime and not sent
+    signalId = str.tostring(time) + "|" + syminfo.tickerid + "|" + sideInput
+    sent := true
+    alert(f_msg(apiKeyInput, sideInput, slInput, tpInput, signalId), alert.freq_once_per_bar)

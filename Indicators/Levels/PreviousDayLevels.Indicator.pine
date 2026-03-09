@@ -1,7 +1,7 @@
 //@version=6
 indicator("Levels / Previous Day Levels (labels per day)", overlay=true, max_labels_count=500)
 
-import maksim_owner/PrevDayLevels/4 as PDL
+import maksim_owner/PrevDayLevels/6 as PDL
 
 // --- Inputs
 inpShowOpenClose  = input.bool(false, "Show Prev Open/Close")
@@ -19,6 +19,10 @@ plot(featPrevDayOhlc.low, "PDL", color=color.green, linewidth=2, style=plot.styl
 plot(inpShowOpenClose ? featPrevDayOhlc.open : na, "PDO", color=color.orange, linewidth=1, style=plot.style_linebr)
 plot(inpShowOpenClose ? featPrevDayOhlc.close : na, "PDC", color=color.blue, linewidth=1, style=plot.style_linebr)
 
-// --- Annotations
-var label[] lbls = array.new_label()
-PDL.drawDayLabels(lbls, featPrevDayOhlc, inpShowOpenClose, inpLabelDisplayPeriodDays)
+// ── Optional: show previous day labels (same as indicator)
+var label[] prevDayLevelLabels = array.new_label()
+if inpShowPrevDayLevels
+    PDL.drawDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
+else
+    while array.size(prevDayLevelLabels) > 0
+        label.delete(array.shift(prevDayLevelLabels))

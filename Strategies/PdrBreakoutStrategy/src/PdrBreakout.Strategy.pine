@@ -1,8 +1,8 @@
-﻿//@version=6
+//@version=6
 strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, scale=scale.right, max_labels_count=500)
 
 // ── Import library
-import maksim_owner/PrevDayLevels/4 as PDL
+import maksim_owner/PrevDayLevels/6 as PDL
 
 enum TrendDirection
     Down
@@ -93,6 +93,7 @@ f_model_signalName(signalValue) =>
     signalValue == BreakoutSignal.Long ? "LONG" : signalValue == BreakoutSignal.Short ? "SHORT" : "NONE"
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
+f_isEntryAllowed(canTradeValue, hasEntryOnCurrentBarValue, positionSizeValue) => canTradeValue and (not hasEntryOnCurrentBarValue) and (barstate.isrealtime ? true : positionSizeValue == 0)
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
 
 // ── Feature Layer
@@ -134,7 +135,7 @@ var int lastEntryBarIndex = na
 
 // ── Entries + exits
 hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBarIndex)
-isEntryAllowed = canTrade and strategy.position_size == 0 and (not hasEntryOnCurrentBar)
+isEntryAllowed = f_isEntryAllowed(canTrade, hasEntryOnCurrentBar, strategy.position_size)
 
 // ── Model Signal Log (all raw model signals)
 if inpShowModelSignalLog and modelBreakoutSignal != BreakoutSignal.None
