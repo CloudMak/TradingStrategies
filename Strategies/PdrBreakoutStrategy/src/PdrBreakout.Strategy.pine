@@ -1,5 +1,5 @@
 //@version=6
-strategy("Strategy / PDH/PDL Breakout (labels)", overlay=true, pyramiding=0, scale=scale.right, max_labels_count=500)
+strategy("Strategy / Previous Day Levels Breakout", overlay=true, pyramiding=0, scale=scale.left, max_labels_count=500, calc_on_every_tick=true)
 
 // ── Import library
 import maksim_owner/PrevDayLevels/6 as PDL
@@ -93,7 +93,8 @@ f_model_signalName(signalValue) =>
     signalValue == BreakoutSignal.Long ? "LONG" : signalValue == BreakoutSignal.Short ? "SHORT" : "NONE"
 // Returns true when current bar already has an entry.
 f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
-f_isEntryAllowed(canTradeValue, hasEntryOnCurrentBarValue, positionSizeValue) => canTradeValue and (not hasEntryOnCurrentBarValue) and (barstate.isrealtime ? true : positionSizeValue == 0)
+f_hasEntryInLookbackWindow(lastEntryBarIndexValue, lookbackBarsValue) => (not na(lastEntryBarIndexValue)) and (bar_index - lastEntryBarIndexValue < lookbackBarsValue)
+f_isEntryAllowed(canTradeValue, hasEntryOnCurrentBarValue, hasEntryInLookbackWindowValue, positionSizeValue) => canTradeValue and (not hasEntryOnCurrentBarValue) and (not hasEntryInLookbackWindowValue) and (barstate.isrealtime ? true : positionSizeValue == 0)
 f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
 
 // ── Feature Layer
@@ -135,13 +136,14 @@ var int lastEntryBarIndex = na
 
 // ── Entries + exits
 hasEntryOnCurrentBar = f_hasEntryOnCurrentBar(lastEntryBarIndex)
-isEntryAllowed = f_isEntryAllowed(canTrade, hasEntryOnCurrentBar, strategy.position_size)
+hasEntryInLookbackWindow = f_hasEntryInLookbackWindow(lastEntryBarIndex, inpBreakoutLookbackBars)
+isEntryAllowed = f_isEntryAllowed(canTrade, hasEntryOnCurrentBar, hasEntryInLookbackWindow, strategy.position_size)
 
 // ── Model Signal Log (all raw model signals)
 if inpShowModelSignalLog and modelBreakoutSignal != BreakoutSignal.None
     signalName = f_model_signalName(modelBreakoutSignal)
     gateText = modelSignalAllowed ? "ALLOW" : "BLOCK"
-    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPrevDayOhlc.high=" + f_formatPrice(featPrevDayOhlc.high) + " | featPrevDayOhlc.low=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
+    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | hasEntryInLookbackWindow=" + str.tostring(hasEntryInLookbackWindow) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPrevDayOhlc.high=" + f_formatPrice(featPrevDayOhlc.high) + " | featPrevDayOhlc.low=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
     log.info(logText)
     
 if isEntryAllowed and modelSignalAllowed

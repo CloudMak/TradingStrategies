@@ -1,0 +1,27 @@
+//@version=6
+strategy("Strategy / Test", overlay=true, pyramiding=0, calc_on_every_tick=true)
+
+apiKeyInput = input.string("123", "apiKey")
+sideInput = input.string("Sell", "side", options=["Buy","Sell"])
+slInput = input.float(123.0, "SL")
+tpInput = input.float(124.0, "TP")
+signalDelaySecInput = input.int(0, "Signal delay (sec, 0 = bar close confirm)", minval=0)
+
+f_price(x) => str.tostring(x, format.mintick)
+f_msg(apiKey, side, slPrice, tpPrice, signalId) => "{\"apiKey\":\"" + apiKey + "\",\"ticker\":\"" + syminfo.ticker + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\",\"signalId\":\"" + signalId + "\"}"
+
+var int lastSignalTsMs = na
+
+useDelayMode = signalDelaySecInput > 0
+useBarCloseConfirmMode = not useDelayMode
+delayMs = signalDelaySecInput * 1000
+isDelayPassed = na(lastSignalTsMs) or (timenow - lastSignalTsMs) >= delayMs
+canSendSignal = barstate.isrealtime and (useDelayMode ? isDelayPassed : barstate.isconfirmed)
+
+if canSendSignal
+    signalId = str.tostring(timenow) + "|" + syminfo.tickerid + "|" + sideInput
+    lastSignalTsMs := timenow
+    if useDelayMode
+        alert(f_msg(apiKeyInput, sideInput, slInput, tpInput, signalId), alert.freq_all)
+    else if useBarCloseConfirmMode
+        alert(f_msg(apiKeyInput, sideInput, slInput, tpInput, signalId), alert.freq_once_per_bar_close)
