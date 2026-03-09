@@ -30,18 +30,23 @@ inpMinStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, st
 // Sets ATR-based breakout buffer fraction, affecting breakout trigger sensitivity.
 inpBufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
 inpBreakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
+// For tests
+inpPdhOverrideForTests = input.string("", "PDH override (current day)", group="For tests")
+inpPdlOverrideForTests = input.string("", "PDL override (current day)", group="For tests")
+
 // Toggles entry labels, affecting whether entry diagnostics are drawn on chart.
-inpShowEntryLabels = input.bool(true, "Show entry labels")
+inpShowEntryLabels = input.bool(true, "Show entry labels", group="Visualization")
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
-inpShowExitLabels = input.bool(true, "Show exit labels")
-inpShowPrevDayLevels = input.bool(false, "Show prev day levels")
-inpShowModelSignalLog = input.bool(false, "Show model signal log")
-inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter")
-inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"])
-inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1)
-inpHtfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1)
-inpHtfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1)
-inpApiKey = input.string("", "API Key")
+inpShowExitLabels = input.bool(true, "Show exit labels", group="Visualization")
+inpShowPrevDayLevels = input.bool(false, "Show prev day levels", group="Visualization")
+inpShowModelSignalLog = input.bool(false, "Show model signal log", group="Visualization")
+
+inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter", group="Filters")
+inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"], group="Filters")
+inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1, group="Filters")
+inpHtfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1, group="Filters")
+inpHtfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1, group="Filters")
+inpApiKey = input.string("", "API Key", group="API")
 
 // ── Helpers
 f_formatPrice(x) => str.tostring(x, format.mintick)
@@ -54,6 +59,19 @@ f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
 f_feature_atr(atrLength, atrTfValue = "D") =>
     request.security(syminfo.tickerid, atrTfValue, ta.atr(atrLength)[1], barmerge.gaps_off, barmerge.lookahead_on)
 f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
+f_inputIsNotEmpty(rawValue) => str.length(rawValue) > 0
+f_parseOptionalPrice(rawValue) =>
+    f_inputIsNotEmpty(rawValue) ? str.tonumber(rawValue) : na
+f_applyCurrentDayPrevLevelOverridesForTests(prevDayOhlc, pdhOverrideInput, pdlOverrideInput) =>
+    resultPrevDayOhlc = prevDayOhlc
+    isCurrentDayBar = year(time) == year(timenow) and month(time) == month(timenow) and dayofmonth(time) == dayofmonth(timenow)
+    if isCurrentDayBar and f_inputIsNotEmpty(pdhOverrideInput)
+        pdhOverride = f_parseOptionalPrice(pdhOverrideInput)
+        resultPrevDayOhlc := PDL.PrevDayOHLC.new(not na(pdhOverride) ? pdhOverride : resultPrevDayOhlc.high, resultPrevDayOhlc.low, resultPrevDayOhlc.open, resultPrevDayOhlc.close)
+    if isCurrentDayBar and f_inputIsNotEmpty(pdlOverrideInput)
+        pdlOverride = f_parseOptionalPrice(pdlOverrideInput)
+        resultPrevDayOhlc := PDL.PrevDayOHLC.new(resultPrevDayOhlc.high, not na(pdlOverride) ? pdlOverride : resultPrevDayOhlc.low, resultPrevDayOhlc.open, resultPrevDayOhlc.close)
+    resultPrevDayOhlc
 f_feature_htfTrend(tfValue, fastLenValue, slowLenValue, signalLenValue) =>
     htfMacdLine = request.security(syminfo.tickerid, tfValue, ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), barmerge.gaps_off, barmerge.lookahead_off)
     htfSignalLine = request.security(syminfo.tickerid, tfValue, ta.ema(ta.ema(close, fastLenValue) - ta.ema(close, slowLenValue), signalLenValue), barmerge.gaps_off, barmerge.lookahead_off)
@@ -101,6 +119,7 @@ f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKe
 featClose = close
 featATR = f_feature_atr(inpAtrLen, "D")
 featPrevDayOhlc = PDL.getPrevDayOHLC()
+featPrevDayOhlc := f_applyCurrentDayPrevLevelOverridesForTests(featPrevDayOhlc, inpPdhOverrideForTests, inpPdlOverrideForTests)
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
 
@@ -143,7 +162,7 @@ isEntryAllowed = f_isEntryAllowed(canTrade, hasEntryOnCurrentBar, hasEntryInLook
 if inpShowModelSignalLog and modelBreakoutSignal != BreakoutSignal.None
     signalName = f_model_signalName(modelBreakoutSignal)
     gateText = modelSignalAllowed ? "ALLOW" : "BLOCK"
-    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | hasEntryInLookbackWindow=" + str.tostring(hasEntryInLookbackWindow) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPrevDayOhlc.high=" + f_formatPrice(featPrevDayOhlc.high) + " | featPrevDayOhlc.low=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
+    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | hasEntryInLookbackWindow=" + str.tostring(hasEntryInLookbackWindow) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPDH=" + f_formatPrice(featPrevDayOhlc.high) + " | featPDL=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
     log.info(logText)
     
 if isEntryAllowed and modelSignalAllowed
