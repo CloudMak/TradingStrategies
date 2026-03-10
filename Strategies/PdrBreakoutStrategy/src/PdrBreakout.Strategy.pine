@@ -113,7 +113,7 @@ f_model_signalName(signalValue) =>
 f_hasEntryOnCurrentBar(lastEntryBarIndexValue) => (not na(lastEntryBarIndexValue)) and bar_index == lastEntryBarIndexValue
 f_hasEntryInLookbackWindow(lastEntryBarIndexValue, lookbackBarsValue) => (not na(lastEntryBarIndexValue)) and (bar_index - lastEntryBarIndexValue < lookbackBarsValue)
 f_isEntryAllowed(canTradeValue, hasEntryOnCurrentBarValue, hasEntryInLookbackWindowValue, positionSizeValue) => canTradeValue and (not hasEntryOnCurrentBarValue) and (not hasEntryInLookbackWindowValue) and (barstate.isrealtime ? true : positionSizeValue == 0)
-f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"inpApiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
+f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\":\"" + apiKeyValue + "\",\"ticker\":\"" + tickerValue + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_formatPrice(slPrice) + "\",\"tp\":\"" + f_formatPrice(tpPrice) + "\"}"
 
 // ── Feature Layer
 featClose = close
