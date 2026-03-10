@@ -10,7 +10,9 @@ signalDelaySecInput = input.int(0, "Signal delay (sec, 0 = bar close confirm)", 
 f_price(x) => str.tostring(x, format.mintick)
 f_msg(apiKey, side, slPrice, tpPrice, signalId) => "{\"apiKey\":\"" + apiKey + "\",\"ticker\":\"" + syminfo.ticker + "\",\"side\":\"" + side + "\",\"sl\":\"" + f_price(slPrice) + "\",\"tp\":\"" + f_price(tpPrice) + "\",\"signalId\":\"" + signalId + "\"}"
 
-var int lastSignalTsMs = na
+// `varip` keeps value between realtime ticks inside the same bar.
+// With plain `var`, Pine rolls back intrabar state and delay is effectively ignored.
+varip int lastSignalTsMs = na
 
 useDelayMode = signalDelaySecInput > 0
 useBarCloseConfirmMode = not useDelayMode
