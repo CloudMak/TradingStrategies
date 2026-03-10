@@ -23,6 +23,54 @@ export getPrevDayRange(string tickerId = syminfo.tickerid) =>
     prevDay = getPrevDayOHLC(tickerId)
     math.max(prevDay.high - prevDay.low, syminfo.mintick)
 
+f_isInSession(string sessionValue, string timezoneValue) =>
+    not na(time_close(timeframe.period, sessionValue, timezoneValue))
+
+f_getMoexFuturesSession() =>
+    closeDayOfWeek = dayofweek(time_close)
+    isWeekend = closeDayOfWeek == dayofweek.saturday or closeDayOfWeek == dayofweek.sunday
+    isWeekend ? "0950-1900:67" : "0850-2350:12345"
+
+// Returns previous OHLC for a MOEX derivatives trading day defined by official session boundaries.
+// Weekdays: 08:50-23:50 Moscow time.
+// Weekend session: 09:50-19:00 Moscow time.
+// Weekday trading day is intentionally treated as one continuous day, so intraday clearing breaks
+// do not split previous-day levels into morning, day, and evening sessions.
+// Source: https://www.moex.com/torgovye-sessii-na-srochnom-rynke (checked on March 10, 2026).
+export getPrevDayOhlcForMoex(string timezoneValue = "Europe/Moscow") =>
+    sessionValue = f_getMoexFuturesSession()
+    inSession = f_isInSession(sessionValue, timezoneValue)
+    newSession = inSession and not inSession[1]
+
+    var float currentOpen = na
+    var float currentHigh = na
+    var float currentLow = na
+    var float currentClose = na
+
+    var float previousOpen = na
+    var float previousHigh = na
+    var float previousLow = na
+    var float previousClose = na
+
+    if newSession
+        if not na(currentOpen)
+            previousOpen := currentOpen
+            previousHigh := currentHigh
+            previousLow := currentLow
+            previousClose := currentClose
+
+        currentOpen := open
+        currentHigh := high
+        currentLow := low
+        currentClose := close
+    else if inSession
+        currentOpen := na(currentOpen) ? open : currentOpen
+        currentHigh := na(currentHigh) ? high : math.max(currentHigh, high)
+        currentLow := na(currentLow) ? low : math.min(currentLow, low)
+        currentClose := close
+
+    PrevDayOHLC.new(previousHigh, previousLow, previousOpen, previousClose)
+
 // --- Indicator API: Previous Day Levels with labels per day
 
 f_drawLevelLabel(label[] labels, float price, string lineTitle, color bgColor, textSize) =>

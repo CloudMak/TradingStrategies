@@ -30,6 +30,7 @@ inpMinStopPct = input.float(0.002, "Min stop floor (% of price)", minval=0.0, st
 // Sets ATR-based breakout buffer fraction, affecting breakout trigger sensitivity.
 inpBufferAtr = input.float(0.08, "Breakout buffer (ATR fraction)", minval=0.0, step=0.01)
 inpBreakoutLookbackBars = input.int(4, "Breakout lookback bars", minval=1)
+inpMoex = input.bool(false, "MOEX")
 // For tests
 inpPdhOverrideForTests = input.string("", "PDH override (current day)", group="For tests")
 inpPdlOverrideForTests = input.string("", "PDL override (current day)", group="For tests")
@@ -118,7 +119,7 @@ f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\"
 // ── Feature Layer
 featClose = close
 featATR = f_feature_atr(inpAtrLen, "D")
-featPrevDayOhlc = PDL.getPrevDayOHLC()
+featPrevDayOhlc = inpMoex ? PDL.getPrevDayOhlcForMoex() : PDL.getPrevDayOHLC()
 featPrevDayOhlc := f_applyCurrentDayPrevLevelOverridesForTests(featPrevDayOhlc, inpPdhOverrideForTests, inpPdlOverrideForTests)
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
