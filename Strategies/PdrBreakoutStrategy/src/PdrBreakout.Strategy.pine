@@ -2,7 +2,7 @@
 strategy("Strategy / Previous Day Levels Breakout", overlay=true, pyramiding=0, scale=scale.left, max_labels_count=500, calc_on_every_tick=true)
 
 // ── Import library
-import maksim_owner/PrevDayLevels/6 as PDL
+import maksim_owner/PrevDayLevels/9 as PDL
 
 enum TrendDirection
     Down
@@ -40,6 +40,7 @@ inpShowEntryLabels = input.bool(true, "Show entry labels", group="Visualization"
 // Toggles exit labels, affecting whether close outcome diagnostics are drawn on chart.
 inpShowExitLabels = input.bool(true, "Show exit labels", group="Visualization")
 inpShowPrevDayLevels = input.bool(false, "Show prev day levels", group="Visualization")
+inpShowPrevDayLevelLabels = input.bool(false, "Show prev day level labels", group="Visualization")
 inpShowModelSignalLog = input.bool(false, "Show model signal log", group="Visualization")
 
 inpUseHTFTrendFilter = input.bool(true, "Use HTF trend filter", group="Filters")
@@ -238,7 +239,7 @@ plot(inpShowPrevDayLevels ? featPrevDayOhlc.low - featBreakoutBuffer : na, "PDL 
 
 // ── Optional: show previous day labels (same as indicator)
 var label[] prevDayLevelLabels = array.new_label()
-if inpShowPrevDayLevels
+if inpShowPrevDayLevels and inpShowPrevDayLevelLabels
     PDL.drawDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
 else
     while array.size(prevDayLevelLabels) > 0
