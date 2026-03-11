@@ -1,0 +1,90 @@
+//@version=6
+indicator("Levels / Previous Day Value Area", overlay=true, max_labels_count=500)
+
+type ValueAreaLevels
+    float vah
+    float val
+    float poc
+
+f_computeValueArea(float[] prices, float[] volumes, float dayLow, float dayHigh, int rows, float valueAreaPercent) =>
+    bucketCount = math.max(rows, 1)
+    dayRange = math.max(dayHigh - dayLow, syminfo.mintick)
+    bucketSize = math.max(dayRange / bucketCount, syminfo.mintick)
+    volumeBuckets = array.new_float(bucketCount, 0.0)
+    totalVolume = 0.0
+
+    for i = 0 to array.size(prices) - 1
+        price = array.get(prices, i)
+        volumeValue = array.get(volumes, i)
+        bucketIndex = int(math.floor((price - dayLow) / bucketSize))
+        bucketIndex := math.max(0, math.min(bucketCount - 1, bucketIndex))
+        array.set(volumeBuckets, bucketIndex, array.get(volumeBuckets, bucketIndex) + volumeValue)
+        totalVolume += volumeValue
+
+    pocIndex = 0
+    pocVolume = array.get(volumeBuckets, 0)
+    for i = 1 to bucketCount - 1
+        bucketVolume = array.get(volumeBuckets, i)
+        if bucketVolume > pocVolume
+            pocVolume := bucketVolume
+            pocIndex := i
+
+    targetVolume = totalVolume * valueAreaPercent / 100.0
+    accumulatedVolume = pocVolume
+    lowerIndex = pocIndex
+    upperIndex = pocIndex
+
+    while accumulatedVolume < targetVolume and (lowerIndex > 0 or upperIndex < bucketCount - 1)
+        nextUpperVolume = upperIndex < bucketCount - 1 ? array.get(volumeBuckets, upperIndex + 1) : -1.0
+        nextLowerVolume = lowerIndex > 0 ? array.get(volumeBuckets, lowerIndex - 1) : -1.0
+        if nextUpperVolume >= nextLowerVolume
+            upperIndex += 1
+            accumulatedVolume += nextUpperVolume
+        else
+            lowerIndex -= 1
+            accumulatedVolume += nextLowerVolume
+
+    vah = dayLow + (upperIndex + 1) * bucketSize
+    val = dayLow + lowerIndex * bucketSize
+    poc = dayLow + (pocIndex + 0.5) * bucketSize
+    ValueAreaLevels.new(vah, val, poc)
+
+inpRows = input.int(24, "Profile rows", minval=4, maxval=200)
+inpValueAreaPercent = input.float(70.0, "Value area %", minval=1.0, maxval=100.0, step=0.5)
+inpShowPoc = input.bool(true, "Show POC")
+inpShadeValueArea = input.bool(true, "Shade value area")
+
+if not timeframe.isintraday
+    runtime.error("Works only on timeframes below 1D")
+
+newDay = ta.change(time("D")) != 0
+
+var float[] dayPrices = array.new_float()
+var float[] dayVolumes = array.new_float()
+var float currentDayLow = na
+var float currentDayHigh = na
+
+var float prevDayVah = na
+var float prevDayVal = na
+var float prevDayPoc = na
+
+if newDay and array.size(dayPrices) > 0 and not na(currentDayLow) and not na(currentDayHigh)
+    prevDayValueArea = f_computeValueArea(dayPrices, dayVolumes, currentDayLow, currentDayHigh, inpRows, inpValueAreaPercent)
+    prevDayVah := prevDayValueArea.vah
+    prevDayVal := prevDayValueArea.val
+    prevDayPoc := prevDayValueArea.poc
+    array.clear(dayPrices)
+    array.clear(dayVolumes)
+    currentDayLow := na
+    currentDayHigh := na
+
+currentDayLow := na(currentDayLow) ? low : math.min(currentDayLow, low)
+currentDayHigh := na(currentDayHigh) ? high : math.max(currentDayHigh, high)
+array.push(dayPrices, hlc3)
+array.push(dayVolumes, volume)
+
+vahPlot = plot(prevDayVah, "Prev VAH", color=color.red, linewidth=2, style=plot.style_linebr)
+valPlot = plot(prevDayVal, "Prev VAL", color=color.green, linewidth=2, style=plot.style_linebr)
+pocPlot = plot(inpShowPoc ? prevDayPoc : na, "Prev POC", color=color.orange, linewidth=2, style=plot.style_linebr)
+
+fill(vahPlot, valPlot, inpShadeValueArea ? color.new(color.orange, 88) : na, "Prev Value Area")

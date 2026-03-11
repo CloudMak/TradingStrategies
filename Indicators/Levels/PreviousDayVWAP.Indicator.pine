@@ -1,0 +1,23 @@
+//@version=6
+indicator("Levels / Previous Day VWAP", overlay=true, max_labels_count=500)
+
+inpSource = input.source(hlc3, "Source")
+
+if not timeframe.isintraday
+    runtime.error("Works only on timeframes below 1D")
+
+newDay = ta.change(time("D")) != 0
+
+var float currentDayVolume = 0.0
+var float currentDayPriceVolume = 0.0
+var float prevDayVwap = na
+
+if newDay and currentDayVolume > 0
+    prevDayVwap := currentDayPriceVolume / currentDayVolume
+    currentDayVolume := 0.0
+    currentDayPriceVolume := 0.0
+
+currentDayVolume += volume
+currentDayPriceVolume += inpSource * volume
+
+plot(prevDayVwap, "Prev VWAP", color=color.orange, linewidth=2, style=plot.style_linebr)
