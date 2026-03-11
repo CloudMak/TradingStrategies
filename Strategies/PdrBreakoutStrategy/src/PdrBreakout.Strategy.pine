@@ -21,6 +21,8 @@ inpTradeOncePerDay = input.bool(false, "One trade per day")
 inpUseCloseConfirm = input.bool(true, "Confirm on bar close")
 // Sets ATR lookback length, affecting volatility measurement used in stops and labels.
 inpAtrLen = input.int(14, "ATR Length", minval=1)
+// Selects the timeframe used to calculate ATR for stops and breakout buffer.
+inpAtrTf = input.string("D", "ATR TF", options=["30", "60", "D"])
 // Sets ATR stop multiplier, affecting stop-loss distance from entry.
 inpAtrMult = input.float(1.2, "SL = k*ATR", minval=0.1, step=0.1)
 // Sets risk-reward ratio, affecting take-profit distance relative to stop distance.
@@ -119,7 +121,7 @@ f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\"
 
 // ── Feature Layer
 featClose = close
-featATR = f_feature_atr(inpAtrLen, "D")
+featATR = f_feature_atr(inpAtrLen, inpAtrTf)
 featPrevDayOhlc = inpMoex ? PDL.getPrevDayOhlcForMoexForts() : PDL.getPrevDayOHLC()
 featPrevDayOhlc := f_applyCurrentDayPrevLevelOverridesForTests(featPrevDayOhlc, inpPdhOverrideForTests, inpPdlOverrideForTests)
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
