@@ -50,6 +50,8 @@ inpHtfTrendTf = input.string("60", "HTF Trend TF", options=["30", "60", "D"], gr
 inpHtfMacdFastLen = input.int(12, "HTF MACD Fast Length", minval=1, group="Filters")
 inpHtfMacdSlowLen = input.int(26, "HTF MACD Slow Length", minval=1, group="Filters")
 inpHtfMacdSignalLen = input.int(9, "HTF MACD Signal Length", minval=1, group="Filters")
+inpVolumePressureLookbackBars = input.int(10, "Volume Pressure Lookback", minval=1, group="Filters")
+inpVolumeGrowthMultiplierThreshold = input.float(1.5, "Volume Growth Threshold (x)", minval=0.0, step=0.1, group="Filters")
 inpApiKey = input.string("", "API Key", group="API")
 
 // ── Helpers
@@ -63,6 +65,15 @@ f_risk_tpDistance(stopDistance, rrValue) => rrValue * stopDistance
 f_feature_atr(atrLength, atrTfValue = "D") =>
     request.security(syminfo.tickerid, atrTfValue, ta.atr(atrLength)[1], barmerge.gaps_off, barmerge.lookahead_on)
 f_feature_breakoutBuffer(atrValue, bufferAtrValue) => bufferAtrValue * atrValue
+f_sumLastBars(sourceValue, lookbackBarsValue, startOffsetValue = 0) =>
+    totalValue = 0.0
+    for idx = 0 to lookbackBarsValue - 1
+        totalValue += nz(sourceValue[startOffsetValue + idx], 0.0)
+    totalValue
+f_feature_volumePressure(lookbackBarsValue) =>
+    lastPeriodVolume = f_sumLastBars(volume, lookbackBarsValue)
+    previousPeriodVolume = f_sumLastBars(volume, lookbackBarsValue, lookbackBarsValue)
+    previousPeriodVolume > 0 ? lastPeriodVolume / previousPeriodVolume : 0.0
 f_inputIsNotEmpty(rawValue) => str.length(rawValue) > 0
 f_parseOptionalPrice(rawValue) =>
     f_inputIsNotEmpty(rawValue) ? str.tonumber(rawValue) : na
@@ -126,6 +137,7 @@ featPrevDayOhlc = inpMoex ? PDL.getPrevDayOhlcForMoexForts() : PDL.getPrevDayOHL
 featPrevDayOhlc := f_applyCurrentDayPrevLevelOverridesForTests(featPrevDayOhlc, inpPdhOverrideForTests, inpPdlOverrideForTests)
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
+featVolumePressure = f_feature_volumePressure(inpVolumePressureLookbackBars)
 
 // ── One-trade-per-day gate
 newDay = inpMoex ? PDL.isNewMoexFortsTradingDay() : ta.change(time("D")) != 0
@@ -137,6 +149,7 @@ canTrade = (not inpTradeOncePerDay) or (not tradedToday)
 // ── Model Layer
 modelBreakoutSignal = f_model_breakoutSignal(featClose, featPrevDayOhlc.high, featPrevDayOhlc.low, featBreakoutBuffer, inpBreakoutLookbackBars)
 modelSignalAllowed = modelBreakoutSignal != BreakoutSignal.None
+modelSignalAllowed := featVolumePressure > inpVolumeGrowthMultiplierThreshold
 modelSignalAllowed := f_model_isSignalFilteredByHtf(modelBreakoutSignal, modelSignalAllowed, inpUseHTFTrendFilter, featHTFTrend)
 modelSignalAllowed := f_model_confirmedByBarstate(modelSignalAllowed, inpUseCloseConfirm)
 
@@ -166,7 +179,7 @@ isEntryAllowed = f_isEntryAllowed(canTrade, hasEntryOnCurrentBar, hasEntryInLook
 if inpShowModelSignalLog and modelBreakoutSignal != BreakoutSignal.None
     signalName = f_model_signalName(modelBreakoutSignal)
     gateText = modelSignalAllowed ? "ALLOW" : "BLOCK"
-    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | hasEntryInLookbackWindow=" + str.tostring(hasEntryInLookbackWindow) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPDH=" + f_formatPrice(featPrevDayOhlc.high) + " | featPDL=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer)
+    logText = "modelBreakoutSignal=" + signalName + " | modelSignalAllowed=" + str.tostring(modelSignalAllowed) + " | gate=" + gateText + " | isEntryAllowed=" + str.tostring(isEntryAllowed) + " | hasEntryOnCurrentBar=" + str.tostring(hasEntryOnCurrentBar) + " | hasEntryInLookbackWindow=" + str.tostring(hasEntryInLookbackWindow) + " | strategy.position_size=" + f_formatNumber(strategy.position_size) + " | canTrade=" + str.tostring(canTrade) + " | inpUseCloseConfirm=" + str.tostring(inpUseCloseConfirm) + " | inpUseHTFTrendFilter=" + str.tostring(inpUseHTFTrendFilter) + " | featClose=" + f_formatPrice(featClose) + " | featPDH=" + f_formatPrice(featPrevDayOhlc.high) + " | featPDL=" + f_formatPrice(featPrevDayOhlc.low) + " | featBreakoutBuffer=" + f_formatPrice(featBreakoutBuffer) + " | featVolumePressure=" + f_formatNumber(featVolumePressure)
     log.info(logText)
     
 if isEntryAllowed and modelSignalAllowed
