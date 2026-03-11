@@ -2,7 +2,7 @@
 strategy("Strategy / Previous Day Levels Breakout", overlay=true, pyramiding=0, scale=scale.left, max_labels_count=500, calc_on_every_tick=true)
 
 // ── Import library
-import maksim_owner/PrevDayLevels/9 as PDL
+import maksim_owner/PrevDayLevels/15 as PDL
 
 enum TrendDirection
     Down
@@ -120,13 +120,13 @@ f_alertMessage(apiKeyValue, tickerValue, side, slPrice, tpPrice) => "{\"apiKey\"
 // ── Feature Layer
 featClose = close
 featATR = f_feature_atr(inpAtrLen, "D")
-featPrevDayOhlc = inpMoex ? PDL.getPrevDayOhlcForMoex() : PDL.getPrevDayOHLC()
+featPrevDayOhlc = inpMoex ? PDL.getPrevDayOhlcForMoexForts() : PDL.getPrevDayOHLC()
 featPrevDayOhlc := f_applyCurrentDayPrevLevelOverridesForTests(featPrevDayOhlc, inpPdhOverrideForTests, inpPdlOverrideForTests)
 featBreakoutBuffer = f_feature_breakoutBuffer(featATR, inpBufferAtr)
 featHTFTrend = f_feature_htfTrend(inpHtfTrendTf, inpHtfMacdFastLen, inpHtfMacdSlowLen, inpHtfMacdSignalLen)
 
 // ── One-trade-per-day gate
-newDay = ta.change(time("D")) != 0
+newDay = inpMoex ? PDL.isNewMoexFortsTradingDay() : ta.change(time("D")) != 0
 var bool tradedToday = false
 if newDay
     tradedToday := false
@@ -240,7 +240,10 @@ plot(inpShowPrevDayLevels ? featPrevDayOhlc.low - featBreakoutBuffer : na, "PDL 
 // ── Optional: show previous day labels (same as indicator)
 var label[] prevDayLevelLabels = array.new_label()
 if inpShowPrevDayLevels and inpShowPrevDayLevelLabels
-    PDL.drawDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
+    if inpMoex
+        PDL.drawMoexFortsDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
+    else
+        PDL.drawDayLabels(prevDayLevelLabels, featPrevDayOhlc, false, 60)
 else
     while array.size(prevDayLevelLabels) > 0
         label.delete(array.shift(prevDayLevelLabels))

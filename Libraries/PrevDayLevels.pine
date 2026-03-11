@@ -23,24 +23,74 @@ export getPrevDayRange(string tickerId = syminfo.tickerid) =>
     prevDay = getPrevDayOHLC(tickerId)
     math.max(prevDay.high - prevDay.low, syminfo.mintick)
 
-f_isInSession(string sessionValue, string timezoneValue) =>
-    not na(time_close(timeframe.period, sessionValue, timezoneValue))
+// Moscow timezone used to map bars to MOEX trading dates regardless of user local time.
+const string MOEX_FORTS_TIMEZONE = "Europe/Moscow"
+// Weekday FORTS trading day treated as one continuous session to avoid splitting on clearing breaks.
+const string MOEX_FORTS_WEEKDAY_SESSION = "0850-2350:12345"
+// Weekend FORTS session used when exchange provides special Saturday/Sunday trading.
+const string MOEX_FORTS_WEEKEND_SESSION = "0950-1900:67"
+// Official weekday FORTS session start in Moscow time. Bars starting at 08:50 belong to a new trading day.
+const int MOEX_FORTS_WEEKDAY_START_HOUR = 8
+const int MOEX_FORTS_WEEKDAY_START_MINUTE = 50
+// Official weekend FORTS session start in Moscow time. Bars starting at 09:50 belong to a new trading day.
+const int MOEX_FORTS_WEEKEND_START_HOUR = 9
+const int MOEX_FORTS_WEEKEND_START_MINUTE = 50
+// Official weekday FORTS session end in Moscow time.
+const int MOEX_FORTS_WEEKDAY_END_HOUR = 23
+const int MOEX_FORTS_WEEKDAY_END_MINUTE = 50
+// Official weekend FORTS session end in Moscow time.
+const int MOEX_FORTS_WEEKEND_END_HOUR = 19
+const int MOEX_FORTS_WEEKEND_END_MINUTE = 0
 
-f_getMoexFuturesSession() =>
-    closeDayOfWeek = dayofweek(time_close)
-    isWeekend = closeDayOfWeek == dayofweek.saturday or closeDayOfWeek == dayofweek.sunday
-    isWeekend ? "0950-1900:67" : "0850-2350:12345"
+f_isWeekendDay(int sourceTime, string timezoneValue) =>
+    sourceDayOfWeek = dayofweek(sourceTime, timezoneValue)
+    sourceDayOfWeek == dayofweek.saturday or sourceDayOfWeek == dayofweek.sunday
 
-// Returns previous OHLC for a MOEX derivatives trading day defined by official session boundaries.
-// Weekdays: 08:50-23:50 Moscow time.
+f_getTradingDayKey(int sourceTime, string timezoneValue) =>
+    year(sourceTime, timezoneValue) * 10000 + month(sourceTime, timezoneValue) * 100 + dayofmonth(sourceTime, timezoneValue)
+
+f_getMoexFortsSession() =>
+    isWeekend = f_isWeekendDay(time, MOEX_FORTS_TIMEZONE)
+    isWeekend ? MOEX_FORTS_WEEKEND_SESSION : MOEX_FORTS_WEEKDAY_SESSION
+
+f_getMoexFortsSessionStartTimestamp(int sourceTime, string timezoneValue) =>
+    isWeekendDay = f_isWeekendDay(sourceTime, timezoneValue)
+    startHour = isWeekendDay ? MOEX_FORTS_WEEKEND_START_HOUR : MOEX_FORTS_WEEKDAY_START_HOUR
+    startMinute = isWeekendDay ? MOEX_FORTS_WEEKEND_START_MINUTE : MOEX_FORTS_WEEKDAY_START_MINUTE
+    timestamp(timezoneValue, year(sourceTime, timezoneValue), month(sourceTime, timezoneValue), dayofmonth(sourceTime, timezoneValue), startHour, startMinute)
+
+f_getMoexFortsSessionEndTimestamp(int sourceTime, string timezoneValue) =>
+    isWeekendDay = f_isWeekendDay(sourceTime, timezoneValue)
+    endHour = isWeekendDay ? MOEX_FORTS_WEEKEND_END_HOUR : MOEX_FORTS_WEEKDAY_END_HOUR
+    endMinute = isWeekendDay ? MOEX_FORTS_WEEKEND_END_MINUTE : MOEX_FORTS_WEEKDAY_END_MINUTE
+    timestamp(timezoneValue, year(sourceTime, timezoneValue), month(sourceTime, timezoneValue), dayofmonth(sourceTime, timezoneValue), endHour, endMinute)
+
+f_doTimeRangesOverlap(int startA, int endA, int startB, int endB) =>
+    startA < endB and startB < endA
+
+f_isInSession(string timezoneValue) =>
+    sessionStartTimestamp = f_getMoexFortsSessionStartTimestamp(time, timezoneValue)
+    sessionEndTimestamp = f_getMoexFortsSessionEndTimestamp(time, timezoneValue)
+    f_doTimeRangesOverlap(time, time_close, sessionStartTimestamp, sessionEndTimestamp)
+
+f_isMoexFortsSessionStartBar(string timezoneValue) =>
+    barStartTimestamp = f_getMoexFortsSessionStartTimestamp(time, timezoneValue)
+    time <= barStartTimestamp and barStartTimestamp <= time_close
+
+export isNewMoexFortsTradingDay(string timezoneValue = "Europe/Moscow") =>
+    inSession = f_isInSession(timezoneValue)
+    isSessionStartBar = f_isMoexFortsSessionStartBar(timezoneValue)
+    tradingDayKey = inSession ? f_getTradingDayKey(time, timezoneValue) : na
+    previousTradingDayKey = nz(tradingDayKey[1], tradingDayKey)
+    inSession and (isSessionStartBar or tradingDayKey != previousTradingDayKey)
+
+// Returns previous OHLC for a MOEX FORTS trading day defined by session boundaries.
+// Weekdays: 08:50-23:50 Moscow time as one continuous trading day.
 // Weekend session: 09:50-19:00 Moscow time.
-// Weekday trading day is intentionally treated as one continuous day, so intraday clearing breaks
-// do not split previous-day levels into morning, day, and evening sessions.
-// Source: https://www.moex.com/torgovye-sessii-na-srochnom-rynke (checked on March 10, 2026).
-export getPrevDayOhlcForMoex(string timezoneValue = "Europe/Moscow") =>
-    sessionValue = f_getMoexFuturesSession()
-    inSession = f_isInSession(sessionValue, timezoneValue)
-    newSession = inSession and not inSession[1]
+// The rollover is tied to the trading date in Moscow timezone, not to calendar D-bars.
+export getPrevDayOhlcForMoexForts(string timezoneValue = "Europe/Moscow") =>
+    inSession = f_isInSession(timezoneValue)
+    newTradingDay = isNewMoexFortsTradingDay(timezoneValue)
 
     var float currentOpen = na
     var float currentHigh = na
@@ -52,7 +102,7 @@ export getPrevDayOhlcForMoex(string timezoneValue = "Europe/Moscow") =>
     var float previousLow = na
     var float previousClose = na
 
-    if newSession
+    if newTradingDay
         if not na(currentOpen)
             previousOpen := currentOpen
             previousHigh := currentHigh
@@ -91,6 +141,20 @@ f_drawLevelLabel(label[] labels, float price, string lineTitle, color bgColor, t
 export drawDayLabels(label[] labels, PrevDayOHLC prevDayOhlc, bool showOpenClose, int labelDisplayPeriodDays) =>
     newDay = ta.change(time("D")) != 0
     if newDay
+        f_drawLevelLabel(labels, prevDayOhlc.high, "PDH", color.new(color.red, 0), size.normal)
+        f_drawLevelLabel(labels, prevDayOhlc.low, "PDL", color.new(color.green, 0), size.normal)
+
+        if showOpenClose
+            f_drawLevelLabel(labels, prevDayOhlc.open, "PDO", color.new(color.orange, 0), size.tiny)
+            f_drawLevelLabel(labels, prevDayOhlc.close, "PDC", color.new(color.blue, 0), size.tiny)
+
+        maxLabels = labelDisplayPeriodDays * (showOpenClose ? 4 : 2)
+        while array.size(labels) > maxLabels
+            label.delete(array.shift(labels))
+
+export drawMoexFortsDayLabels(label[] labels, PrevDayOHLC prevDayOhlc, bool showOpenClose, int labelDisplayPeriodDays, string timezoneValue = "Europe/Moscow") =>
+    newTradingDay = isNewMoexFortsTradingDay(timezoneValue)
+    if newTradingDay
         f_drawLevelLabel(labels, prevDayOhlc.high, "PDH", color.new(color.red, 0), size.normal)
         f_drawLevelLabel(labels, prevDayOhlc.low, "PDL", color.new(color.green, 0), size.normal)
 
